@@ -1,0 +1,1360 @@
+diff --git a/README.md b/README.md
+index 4074a65fc78d1a362dfad5f0dc3d45e1d52afd98..f6c3de779c627d852cba2ca1eb0f86963bbbde06 100644
+--- a/README.md
++++ b/README.md
+@@ -23,6 +23,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while
+ 
+ - Import a provider-issued account and keep credentials in OS-protected storage.
+ - Direct messages and public discussions, with a three-pane reader.
++- Large folders initially show 200 messages; **Show older messages** loads more, while search covers every message in the selected folder.
+ - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
+ - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
+ - Send & receive manually or periodically while the application is running.
+diff --git a/SOURCE-MANIFEST.sha256 b/SOURCE-MANIFEST.sha256
+index 685d23a69e1180a70a224af5e1e226f3af292bef..7b157c419494cd9adc6f063d6c10e28b3cb298f5 100644
+--- a/SOURCE-MANIFEST.sha256
++++ b/SOURCE-MANIFEST.sha256
+@@ -7,14 +7,14 @@ b5d307d2d34f1065698cb0cf3311519076d13a5b6bd7d9abd4eabd3c0d166c65  .gitignore
+ d61e0ac851a73e227249f1b53c1cbe6d21d5ccf8d82364f8ce0f800600aa722e  .prettierignore
+ f583ff6d8ba542b76af46c4c024a0941b77aee51133bb0f69ec6eb1fa613de7e  .prettierrc.json
+ dba01401a786569262fceec7080d38e16eb14b65713deb7800fe3f5dcf594ea5  LICENSE
+-2f6585c9252681d938b577063c492e435c1b3fd84cbc7876a03b21343b279064  README.md
++b3fb1a5f6cf5b07d341d37915e9bd5f1b73af9e283b516a3d844635df9607279  README.md
+ 7075825e0dcb30a90e058fb96e5e0bf15dbe475627ca7d663d6bd5597734e6d4  build/icon.ico
+ 48f80b5682637c31c207958f5e704016a0e0c1ee96f137d1681a07919b33871a  build/icon.png
+ 4a21f7d0987201775652c568c93fc40757d2ac3913891be3237a33cba2beed96  build/icon.svg
+-24b43ca1186f1d58c6be2970ee6d3123186481dec041f572215dc8fadbfa83b0  docs/ARCHITECTURE.md
++0c4ce2121f299bfefc86bb3149911a65620f085adf314a9fe391caaa11c78638  docs/ARCHITECTURE.md
+ 59da13fae340b7f2c70c08a13f5980988f9cf0c4103a7b9dcb3b72ba4580a9c3  docs/DEVELOPMENT.md
+ 6656b65023d1a665347e39bf7b1e60f48c85b9b3b111bdb699278b80f7bf45d0  docs/SYNCHRONET.md
+-6be9c1cc57ee7606ce492b700d2e678f34434cba34cfaa5e6d7c3ae52df10ec6  docs/VALIDATION.md
++3b1ad8107611e2f8cb3fe1f3d1aad268fd1db325950939312e2081975406273b  docs/VALIDATION.md
+ df03b63de48d43f7a82f96b029e96d9e7e237e6621b617aaeac0f83695ab2cd2  eslint.config.js
+ 24bad909cbb5fbd838d4cb5586fc01278a337b3ccb451c272d465a7434cc9d04  examples/account.example.packetlark
+ 40fedff80e311713375d30875185e218418ebeb46b00c2c0b7ebfa33d559a762  package-lock.json
+@@ -22,26 +22,28 @@ a414456e1fb7f41cb76aa8d020a1d77f3065e360dd69595695cd6a058a7c8c84  package.json
+ 7f2a443b6326450fc444329de31607623e263f6542bd4ca85cf955c9b993bd22  playwright.config.ts
+ 16a00e07edb3c462e6e3682cf23abcf7dbf0fd853d084b2c2b585be9ded19587  src/core/binkp.ts
+ a99d3b84a024b4b4013c90b1516942666e89baa84b45bf343cebeed34d775ea6  src/core/discussions.ts
+-b4bda91e7ca9996dc9b14733273139db4a68b4d534f22132767e0fd173e986cb  src/core/model.ts
++4cd7fe38467747988e523a0a9904c48baa4c6387a93b19cadcf9aff9d3151152  src/core/model.ts
+ b263c2eec1d335bff3cdf19120dcba57d555525481106030678f66b24bcb9900  src/core/packet.ts
+-91c6e0f469752e73912ed229bfa3a520475acd1ea07f2ffd427a94ff0ea09e77  src/core/store.ts
+-198b878eb5b1d965f208eecbcc8eb67cd1466f9e53b44e1d193f7ccadfa78e71  src/main/index.ts
+-f4731b36778d2cc46aafcd48a83fa0025d8339bc9b1a0d7652cf75b3380b3324  src/main/preload.cts
+-8fc813fcf7a489052abc391932b39c838eaa85acfa94c49aadaec720ee8259be  src/renderer/app.ts
++a460cf9f2ef86c5e5cf2adae794d16a3c1eac15e0199e4b8dcbff4670e10d374  src/core/store.ts
++67d76942201b167ee1d994c637042ed162ff83f1899225de137a25f09a7e8582  src/main/index.ts
++1788fe456937e7ff625c34ee11d4c5a5cc316f73e7a17297d6f6e11b8649ee4d  src/main/preload.cts
++7524d5a1cf1c85aee16e472ccdac22f865fb0c1328e6848137e52eaed207bc5d  src/renderer/app.ts
+ da5bf71d48cf909584a01c80b445f730507068f5b34c920f352e2bfcf0315e4c  src/renderer/env.d.ts
+ 667a33aac50f8ff57d5a9aab8534c54a1a37453f03d25cd13a256185f5f2f1e8  src/renderer/index.html
+-1dac358fdb39be3a5cce37bbdfd98811fb4b88a125c353ae2b05325496afd0b2  src/renderer/style.css
++d6435b9b00f5029375cdf914277dd5d7aac5b4ac8131b8efd68731d425fcadb8  src/renderer/mailbox.ts
++c944f0b2bd8d38cb9ca660ba24e4f976d743cd13b05939b7991308ab7176b99f  src/renderer/style.css
+ 1803da702465dae9cfbc21e0f5a0247664a09adb439173528e9a00fd5ddc602a  src/renderer/theme.css
+ ef202c9865561d5e0e6dc016d55616f335aa1f37f4d0092342de96261de47d94  tests/binkp.test.ts
+ b521de61809c9f7c7061bd8b4b55a7c14bb451a107f3f41b1c6f6d66eb003ef2  tests/discussions.test.ts
+ c3c7f9db2082278676009016a9a682bc66440d95c5be1414a76c50a3aff79666  tests/fixtures.ts
+ 40218c450f7b4817e9571b1403c9e73d932ec1c77b31a6a4bb07f0d1d3a3ce33  tests/mail-controls.test.ts
+ e776f23d38fe691b43f0f2f4b287d5e9b21c38d98761b47319c3773e9faf98f8  tests/packet.test.ts
++0863d99f3c0b9c6ae3f3205da5a85fa59a792d00c07b8bcd77d6d9c1855adc8a  tests/performance.test.ts
+ 8eaf15c99d30bf1b172d8136559c86bc7e2c5c09714d298190ae4ffa87f9243a  tests/store.test.ts
+ 5837d7c4c679bd104c30b6a0214506da55a94bbad49833bf1965d958c8eb31a2  tests/ui/harness.cjs
+-a8369294711a7a205b131f271cc66be73c4de2c3a54090d58671dcd2124c9a6a  tests/ui/mailbox.spec.ts
++64b0fafc5ce5e245473c98aabea8e4b4b49e9244dc335fd12c333f5e0605e11b  tests/ui/mailbox.spec.ts
+ d1467f448888fbaf4a155b5b1e0b08b32704bca5a22092b83a11c6485261a9f5  tools/provision_point.py
+-2564288561879afc31d006045c9104b807c01cf39bab648479f5225a43770b87  tools/smoke-desktop.mjs
++ad43bf9ac73dd305a7992b0799f1fb8cddafb1702f217ee7f7417ae50a7c431a  tools/smoke-desktop.mjs
+ a81fc2c068438e36cbcd4509d811b06fb3aa392ce184ebe3a5d9d8cac820b93c  tools/test_provision_point.py
+ 023786271830eed94e44a0eaf4106302d3456980ad36cf56794c99e3cf15f93a  tsconfig.json
+ 533e890d4f0768d2ccbc47634d015fe0bca49c0ca6327d892548cacdcac7fc8c  tsconfig.main.json
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 9ade2545e20b84ee43a270e21809a796e2791f67..4053c7070ca1e26a86561d2e735c263475f87065 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -8,6 +8,25 @@ The renderer never receives session credentials or the packet password. Automati
+ 
+ The SQL.js SQLite database is operated synchronously by one main process. Changes are committed and exported to a private temporary file, fsynced, and renamed into place before success is reported. Unix directory entries are fsynced. On write failure the in-memory database is restored to its previous snapshot. Windows and Linux filesystem/power-loss guarantees still depend on the OS and storage. Snapshots are practical for this initial small-mailbox implementation; large mailboxes should move to a native incremental SQLite backend later without changing the IPC contract.
+ 
++## Interface updates
++
++Durable mutations increment an in-memory revision only after the atomic save
++succeeds. The main process caches the public mailbox snapshot for that revision.
++Connection progress sends a small revision/status event, so it does not rescan
++SQLite, decrypt the profile, or copy the entire mailbox across IPC on every update.
++New data invalidates the snapshot; notifications arriving together are coalesced
++before fetching a new copy. Repeatedly setting an unchanged read/starred flag
++does not rewrite the database. Individual message operations use primary-key
++lookups instead of parsing every stored message.
++
++The renderer counts sidebar badges in one pass, reuses one date formatter,
++retains keyed message buttons, and preserves the reader body on flag-only changes.
++Unchanged panels and status text are left in place, retaining scroll and focus.
++Folders initially render 200 rows and expose more in batches of 200; local search
++still covers the complete selected folder. These changes preserve synchronous
++durable commits and the existing network acknowledgement rules. GPU acceleration
++and platform graphics backend selection are unchanged.
++
+ ## Sending
+ 
+ Composing uses a draft record, debounced while typing. Queuing validates fields and encoded byte lengths, builds one raw Type-2+ packet, and persists its exact bytes, filename, timestamp, and message identity. Retrying uses the same bytes and MSGID. A draft cannot be queued twice using its existing ID.
+@@ -38,7 +57,7 @@ Credentials are stored in an OS-encrypted JSON blob. Linux `basic_text` fallback
+ 
+ - A single point account per mailbox; no in-app replacement/removal or multi-device state synchronization.
+ - Desktop application must be running for scheduled polling; no notification tray/background service yet.
+-- Search, list generation, and SQLite snapshot costs grow with mailbox size; no pagination or retention policy yet.
++- Search, list generation, and SQLite snapshot costs grow with mailbox size; rendered message rows are batched, but automatic retention is not implemented.
+ - Basic threading uses explicit parent references. Missing/malformed legacy headers are not guessed by subject.
+ - Discussion requests are asynchronous netmail commands; the interface does not parse every provider-specific AreaFix response format or maintain authoritative membership state.
+ - Unsupported incoming mail stays on the provider and needs sysop attention. Local display cannot retract or edit network posts.
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index d8c1fa163f5adae5fb33fc8b12c503925f9f0f5e..48f08bc16537a6df55329780e6524964ff26e7c6 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -63,3 +63,37 @@ The unchanged Windows/Linux workflow runs the additional tests before packaging.
+ Native display/input checks and live BBS acceptance were not run locally. No
+ dependencies, provisioning settings, keyring identities, or transport options
+ change in this patch.
++
++## Interface performance patch
++
++Based on PacketLark `main` commit `ffc60d8`. Compilation, lint/format checks,
++70 core tests, 19 Electron renderer tests in headless DOM mode, and 10 Python
++provisioning tests pass. The production IPC smoke verifies revision-bearing
++notifications, snapshot refresh after a mutation, and retained sandbox/isolation.
++The existing native Windows/Linux Actions run these checks before packaging.
++
++The changes eliminate full-mailbox fetches for status-only updates, coalesce
++data invalidations, cache public snapshots per durable revision, count sidebar
++badges in one pass, reuse message-row elements and selected reader content,
++cache the date formatter, and initially render at most 200 folder rows. Search
++still covers all messages in the folder. Individual message operations now query
++the primary key; setting already-current flags does not flush SQLite again.
++
++A local synthetic run used 5,000 messages across 100 discussion areas, including
++2,500 direct messages, in Electron's headless test host with GPU disabled:
++
++| Metric                                                       | Baseline | Patched |
++| ------------------------------------------------------------ | -------: | ------: |
++| Navigation to first displayed row                            |   484 ms |  187 ms |
++| Full mailbox fetches for six status updates                  |        6 |       0 |
++| List/reader child-list mutations during those updates        |   15,024 |       0 |
++| Initially rendered direct-message rows                       |    2,500 |     200 |
++| Six-update elapsed time, including 180 ms deliberate waiting | 2,752 ms |  182 ms |
++
++Timing is illustrative for that local run, not a Windows frame-rate claim. The
++regression tests assert stable nodes/scroll, data freshness, batching, and complete
++search rather than machine-dependent timing thresholds. Native text-selection
++verification runs in the regular GUI tests; the restricted offscreen host cannot
++create a normal selection. Actual Windows GPU/compositor smoothness must be
++verified on the affected desktop. Hardware acceleration, Linux Wayland handling,
++mailbox durability, credentials, protocol transport, and dependencies are unchanged.
+diff --git a/src/core/model.ts b/src/core/model.ts
+index 321b8e8c3ea83a1034bf6bd01a660e1c54ef93a7..0394d676d998f9a7643c044b0db71fc970aced39 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -178,6 +178,7 @@ export type DiscussionDirectory = {
+   error: string;
+ };
+ export type State = {
++  revision?: number;
+   account: PublicAccount | null;
+   messages: Message[];
+   areas: { tag: string; name: string }[];
+@@ -188,6 +189,7 @@ export type State = {
+   lastSync: string | null;
+   storageWarning: boolean;
+ };
++export type RuntimeUpdate = { revision: number; syncing: boolean; status: string };
+ export type Api = {
+   state(): Promise<State>;
+   importAccount(): Promise<boolean>;
+@@ -203,5 +205,5 @@ export type Api = {
+   areaCommand(tag: string, subscribe: boolean): Promise<void>;
+   requestAreaList(): Promise<void>;
+   backup(): Promise<void>;
+-  onChanged(cb: () => void): () => void;
++  onChanged(cb: (update?: RuntimeUpdate) => void): () => void;
+ };
+diff --git a/src/core/store.ts b/src/core/store.ts
+index 58d62d9acf5a129f1a4163a6e6f927cdb4f9a4ce..d0370748f1b7cf62e12c72852ff142a080715742 100644
+--- a/src/core/store.ts
++++ b/src/core/store.ts
+@@ -43,6 +43,10 @@ export function atomicWrite(destination: string, bytes: Uint8Array): void {
+   }
+ }
+ export class Store {
++  private currentRevision = 0;
++  get revision(): number {
++    return this.currentRevision;
++  }
+   private constructor(
+     private db: Database,
+     private sql: SqlJsStatic,
+@@ -96,6 +100,7 @@ export class Store {
+       fn();
+       this.db.exec('COMMIT');
+       atomicWrite(this.file, this.db.export());
++      this.currentRevision++;
+     } catch (error) {
+       this.db.close();
+       this.db = new this.sql.Database(previous);
+@@ -121,6 +126,11 @@ export class Store {
+       (r) => JSON.parse(r.data as string) as Message,
+     );
+   }
++  private findMessage(id: string | null | undefined): Message | undefined {
++    if (!id) return undefined;
++    const row = this.rows('SELECT data FROM messages WHERE id=?', [id])[0];
++    return row ? (JSON.parse(row.data as string) as Message) : undefined;
++  }
+   private put(message: Message): void {
+     this.db.run('INSERT OR REPLACE INTO messages VALUES (?,?)', [
+       message.id,
+@@ -158,6 +168,7 @@ export class Store {
+   state(): State {
+     const p = this.profile();
+     return {
++      revision: this.revision,
+       account: p
+         ? {
+             name: p.name,
+@@ -187,7 +198,7 @@ export class Store {
+     const p = this.profile();
+     if (!p) throw new Error('Import an account first.');
+     const c = draftSchema.parse(value);
+-    const old = c.id ? this.messages().find((m) => m.id === c.id) : undefined;
++    const old = c.id ? this.findMessage(c.id) : undefined;
+     if (c.id && (!old || old.folder !== 'drafts')) throw new Error('This draft no longer exists.');
+     const message = draftMessage(p, c, c.id);
+     if (old) message.msgid = old.msgid;
+@@ -205,7 +216,7 @@ export class Store {
+     const p = this.profile();
+     if (!p) throw new Error('Import an account first.');
+     const c = composeSchema.parse(value);
+-    const old = c.id ? this.messages().find((m) => m.id === c.id) : undefined;
++    const old = c.id ? this.findMessage(c.id) : undefined;
+     if (c.id && (!old || old.folder !== 'drafts'))
+       throw new Error('This draft was already queued or removed.');
+     const message = draftMessage(p, c, c.id);
+@@ -251,7 +262,7 @@ export class Store {
+   requestAreaList(): void {
+     const p = this.managementProfile();
+     const directory = this.discussions();
+-    if (this.messages().some((m) => m.id === directory.requestId && m.folder === 'outbox'))
++    if (this.findMessage(directory.requestId)?.folder === 'outbox')
+       throw new Error('An area-list request is already queued. Send & receive to deliver it.');
+     this.mutate(() => {
+       // Separate positive lists let us merge split messages without treating a missing part
+@@ -277,7 +288,7 @@ export class Store {
+     tag = managementTag(tag);
+     const directory = this.discussions();
+     const entry = this.discussion(directory, tag);
+-    if (this.messages().some((m) => m.id === entry.pending?.messageId && m.folder === 'outbox'))
++    if (this.findMessage(entry.pending?.messageId)?.folder === 'outbox')
+       throw new Error(
+         'A request for this discussion is already queued. Send & receive to deliver it.',
+       );
+@@ -303,7 +314,7 @@ export class Store {
+     const receivedAt = new Date().toISOString();
+     const replyTime = Number.isFinite(Date.parse(message.date)) ? message.date : receivedAt;
+     const canResolve = (pending: Discussion['pending']) => {
+-      const request = pending && this.messages().find((m) => m.id === pending.messageId);
++      const request = pending && this.findMessage(pending.messageId);
+       // SBBSecho doesn't include a request ID in replies. Avoid resolving a new request
+       // from an older delayed reply; FTN dates have one-second precision.
+       return (
+@@ -370,7 +381,7 @@ export class Store {
+   sent(name: string): void {
+     const row = this.rows('SELECT message_id FROM outgoing WHERE name=?', [name])[0];
+     if (!row) throw new Error('Outgoing message is no longer queued.');
+-    const message = this.messages().find((m) => m.id === row.message_id);
++    const message = this.findMessage(row.message_id as string);
+     if (!message) throw new Error('Outgoing message record is missing.');
+     message.folder = 'sent';
+     message.error = '';
+@@ -417,18 +428,23 @@ export class Store {
+     return count;
+   }
+   mark(id: string, patch: { read?: boolean; starred?: boolean }): void {
+-    const m = this.messages().find((m) => m.id === id);
++    const m = this.findMessage(id);
+     if (!m) throw new Error('Message not found.');
++    if (
++      (patch.read === undefined || patch.read === m.read) &&
++      (patch.starred === undefined || patch.starred === m.starred)
++    )
++      return;
+     this.mutate(() => this.put({ ...m, ...patch }));
+   }
+   removeDraft(id: string): void {
+-    if (this.messages().find((m) => m.id === id)?.folder !== 'drafts')
++    if (this.findMessage(id)?.folder !== 'drafts')
+       throw new Error('Only drafts can be removed in version 1.');
+     this.mutate(() => this.db.run('DELETE FROM messages WHERE id=?', [id]));
+   }
+   private visibleMessage(id: string): Message {
+-    const message = this.messages().find((m) => m.id === id && !m.internal);
+-    if (!message) throw new Error('Message not found.');
++    const message = this.findMessage(id);
++    if (!message || message.internal) throw new Error('Message not found.');
+     return message;
+   }
+   trashMessage(id: string): void {
+diff --git a/src/main/index.ts b/src/main/index.ts
+index 979302a600bc09dc977543927442024138397ef2..50a6ac9e9a27c5c124360798f146fb815de8df78 100644
+--- a/src/main/index.ts
++++ b/src/main/index.ts
+@@ -4,7 +4,7 @@ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { z } from 'zod';
+ import { Store, atomicWrite } from '../core/store.js';
+-import { composeSchema, draftSchema, profileSchema } from '../core/model.js';
++import { composeSchema, draftSchema, profileSchema, type State } from '../core/model.js';
+ import { exchange } from '../core/binkp.js';
+ import { unpackMail } from '../core/packet.js';
+ 
+@@ -40,7 +40,7 @@ const secureStorage = () =>
+   safeStorage.isEncryptionAvailable() &&
+   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
+ function emit() {
+-  win?.webContents.send('changed');
++  win?.webContents.send('changed', { revision: store.revision, syncing, status });
+ }
+ function safeError(error: unknown): string {
+   // Remote errors may reflect credentials. Redact every configured secret before displaying.
+@@ -149,12 +149,18 @@ function register() {
+         return { ok: false, error: safeError(error) };
+       }
+     });
+-  handle('state', () => ({
+-    ...store.state(),
+-    syncing,
+-    status: status || store.state().status,
+-    storageWarning: !secureStorage(),
+-  }));
++  let snapshot: State | undefined;
++  handle('state', () => {
++    // Connection progress doesn't change the mailbox. Avoid repeated SQL scans,
++    // JSON decoding and OS credential decryption for the same durable revision.
++    if (snapshot?.revision !== store.revision) snapshot = store.state();
++    return {
++      ...snapshot,
++      syncing,
++      status: status || snapshot.status,
++      storageWarning: !secureStorage(),
++    };
++  });
+   handle('import', async () => {
+     const result = await dialog.showOpenDialog(win!, {
+       title: 'Import your PacketLark account',
+diff --git a/src/main/preload.cts b/src/main/preload.cts
+index 35756df335e0a75cec9a7cc882680d0996f43350..d1ba06646d0af0b30226f3158f5852898eaeeb0d 100644
+--- a/src/main/preload.cts
++++ b/src/main/preload.cts
+@@ -1,5 +1,5 @@
+ import { contextBridge, ipcRenderer } from 'electron';
+-import type { Api } from '../core/model.js';
++import type { Api, RuntimeUpdate } from '../core/model.js';
+ async function call<T>(name: string, ...args: unknown[]): Promise<T> {
+   const result = (await ipcRenderer.invoke(name, ...args)) as {
+     ok: boolean;
+@@ -25,7 +25,7 @@ const api: Api = {
+   requestAreaList: () => call('areaList'),
+   backup: () => call('backup'),
+   onChanged(cb) {
+-    const listener = () => cb();
++    const listener = (_event: Electron.IpcRendererEvent, update?: RuntimeUpdate) => cb(update);
+     ipcRenderer.on('changed', listener);
+     return () => ipcRenderer.removeListener('changed', listener);
+   },
+diff --git a/src/renderer/app.ts b/src/renderer/app.ts
+index ebc4bc14232014da22cc25091fdbd20fd3706888..1b4d6ea7d6e3f9253bf93c90652d498c171eb165 100644
+--- a/src/renderer/app.ts
++++ b/src/renderer/app.ts
+@@ -1,5 +1,6 @@
+-import type { Api, Compose, Discussion, Message, State } from '../core/model.js';
++import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
+ import './style.css';
++import { mailboxCounts, reconcileChildren } from './mailbox.js';
+ declare global {
+   interface Window {
+     packetlark: Api;
+@@ -14,6 +15,15 @@ let state: State,
+ let composer: HTMLDialogElement | null = null,
+   refreshing = false,
+   refreshAgain = false;
++let refreshTimer: ReturnType<typeof setTimeout> | undefined;
++let sidebarKey = '',
++  headingKey = '',
++  readerKey = '',
++  readerSelection = '',
++  listViewKey = '';
++let rowLimit = 200;
++const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
++let moreMessages: HTMLButtonElement | undefined;
+ let renderDiscussions: (() => void) | null = null;
+ const app = document.querySelector<HTMLDivElement>('#app')!;
+ function e<K extends keyof HTMLElementTagNameMap>(
+@@ -48,17 +58,20 @@ async function action(fn: () => Promise<unknown>) {
+     notify(error instanceof Error ? error.message : 'The operation failed.', true);
+   }
+ }
++const dateFormatter = new Intl.DateTimeFormat(undefined, {
++  month: 'short',
++  day: 'numeric',
++  hour: 'numeric',
++  minute: '2-digit',
++});
+ function date(value: string) {
+   const d = new Date(value);
+-  return Number.isNaN(d.getTime())
+-    ? value
+-    : d.toLocaleString(undefined, {
+-        month: 'short',
+-        day: 'numeric',
+-        hour: 'numeric',
+-        minute: '2-digit',
+-      });
++  return Number.isNaN(d.getTime()) ? value : dateFormatter.format(d);
+ }
++function setText(node: HTMLElement, value: string) {
++  if (node.textContent !== value) node.textContent = value;
++}
++
+ const toolbar = e('header', 'toolbar');
+ const brand = e('div', 'brand');
+ brand.append(e('div', 'brand-mark', 'P'), e('div', '', 'PacketLark'));
+@@ -92,8 +105,15 @@ listPanel.append(listHeading, messageList);
+ workspace.append(sidebar, listPanel, reader);
+ const footer = e('footer', 'statusbar');
+ footer.setAttribute('role', 'status');
++const footerStatus = e('span'),
++  footerTime = e('span');
++footer.append(footerStatus, footerTime);
+ app.append(toolbar, workspace, footer);
+ async function refresh() {
++  if (refreshTimer) {
++    clearTimeout(refreshTimer);
++    refreshTimer = undefined;
++  }
+   if (refreshing) {
+     refreshAgain = true;
+     return;
+@@ -109,20 +129,42 @@ async function refresh() {
+     refreshing = false;
+   }
+ }
+-function render() {
++function renderRuntime() {
+   composeButton.disabled = !state.account;
+   syncButton.disabled = !state.account || state.syncing;
+-  syncButton.textContent = state.syncing ? '↻ Connecting…' : '↻ Send & receive';
+-  footer.replaceChildren(
+-    e('span', state.syncing ? 'working' : '', `${state.syncing ? '● ' : '● '}${state.status}`),
+-    e(
+-      'span',
+-      '',
+-      state.lastSync
+-        ? `Last exchange: ${date(state.lastSync)}`
+-        : 'Offline reading · FidoNet messaging',
+-    ),
++  setText(syncButton, state.syncing ? '↻ Connecting…' : '↻ Send & receive');
++  footerStatus.className = state.syncing ? 'working' : '';
++  setText(footerStatus, `● ${state.status}`);
++  setText(
++    footerTime,
++    state.lastSync
++      ? `Last exchange: ${date(state.lastSync)}`
++      : 'Offline reading · FidoNet messaging',
+   );
++  for (const control of reader.querySelectorAll<HTMLButtonElement>('[data-mailbox-change]'))
++    control.disabled = state.syncing;
++}
++function render() {
++  renderRuntime();
++  renderSidebar();
++  renderMailbox();
++  renderDiscussions?.();
++}
++function renderSidebar() {
++  const counts = mailboxCounts(state.messages);
++  const key = JSON.stringify([
++    folder,
++    state.account?.provider,
++    !!state.account,
++    state.areas,
++    ['inbox', 'sent', 'drafts', 'outbox', 'starred', 'trash'].map(
++      (id) => counts.folders.get(id) || 0,
++    ),
++    state.areas.map((a) => counts.unreadAreas.get(a.tag) || 0),
++  ]);
++  if (key === sidebarKey) return;
++  sidebarKey = key;
++  const scroll = sidebar.scrollTop;
+   sidebar.replaceChildren();
+   const label = e('div', 'section-label', state.account?.provider || 'RETRODIGITAL BBS');
+   sidebar.append(label);
+@@ -136,13 +178,7 @@ function render() {
+     ['contacts', 'Contacts'],
+   ];
+   for (const [id, title] of folders) {
+-    const count = state.messages.filter((m) =>
+-      id === 'starred'
+-        ? m.starred && m.folder !== 'trash'
+-        : id === 'inbox'
+-          ? m.folder === 'inbox' && !m.area && !m.read
+-          : m.folder === id,
+-    ).length;
++    const count = counts.folders.get(id) || 0;
+     const b = button(
+       title,
+       () => {
+@@ -151,7 +187,6 @@ function render() {
+         selection = '';
+         query = '';
+         search.value = '';
+-        renderMailbox();
+         render();
+       },
+       folder === id ? 'nav-item active' : 'nav-item',
+@@ -162,9 +197,7 @@ function render() {
+   const discussionHeader = e('div', 'section-label section-spaced', 'DISCUSSIONS');
+   sidebar.append(discussionHeader);
+   for (const area of state.areas) {
+-    const count = state.messages.filter(
+-      (m) => m.area === area.tag && m.folder === 'inbox' && !m.read,
+-    ).length;
++    const count = counts.unreadAreas.get(area.tag) || 0;
+     const b = button(
+       area.name,
+       () => {
+@@ -183,15 +216,14 @@ function render() {
+   sidebar.append(
+     e('div', 'sidebar-note', 'Independent conversations.\nDelivered through FidoNet.'),
+   );
+-  renderMailbox();
+-  renderDiscussions?.();
++  sidebar.scrollTop = scroll;
+ }
+ function renderMailbox() {
+   if (!state) return;
+-  listHeading.replaceChildren();
+-  messageList.replaceChildren();
+-  reader.replaceChildren();
+   if (!state.account) {
++    listHeading.replaceChildren();
++    messageList.replaceChildren();
++    reader.replaceChildren();
+     listHeading.append(e('h1', '', 'Your mailbox'));
+     messageList.append(
+       e('p', 'empty-copy', 'Your direct messages and discussions will appear here.'),
+@@ -217,6 +249,12 @@ function renderMailbox() {
+     return;
+   }
+   if (folder === 'contacts') {
++    headingKey = '';
++    readerKey = '';
++    rowCache.clear();
++    listHeading.replaceChildren();
++    messageList.replaceChildren();
++    reader.replaceChildren();
+     listHeading.append(
+       e('h1', '', 'Contacts'),
+       button('Add contact', () => contactDialog(), 'small'),
+@@ -237,17 +275,29 @@ function renderMailbox() {
+   const title = area
+     ? state.areas.find((a) => a.tag === area)?.name || area
+     : folder[0].toUpperCase() + folder.slice(1);
+-  listHeading.append(e('h1', '', title));
+-  const filter = button(
+-    unreadOnly ? 'Unread only ✓' : 'Unread only',
+-    () => {
+-      unreadOnly = !unreadOnly;
+-      renderMailbox();
+-    },
+-    'small',
+-  );
+-  filter.setAttribute('aria-pressed', String(unreadOnly));
+-  listHeading.append(filter);
++  const viewKey = JSON.stringify([folder, query, unreadOnly]);
++  const changedView = viewKey !== listViewKey;
++  if (changedView) {
++    rowLimit = 200;
++    listViewKey = viewKey;
++  }
++  const nextHeading = JSON.stringify([title, unreadOnly]);
++  if (headingKey !== nextHeading) {
++    headingKey = nextHeading;
++    listHeading.replaceChildren();
++    listHeading.append(e('h1', '', title));
++    const filter = button(
++      unreadOnly ? 'Unread only ✓' : 'Unread only',
++      () => {
++        unreadOnly = !unreadOnly;
++        renderMailbox();
++      },
++      'small',
++    );
++    filter.setAttribute('aria-pressed', String(unreadOnly));
++    listHeading.append(filter);
++  }
++  const term = query.toLowerCase();
+   const messages = state.messages
+     .filter((m) => {
+       const match = area
+@@ -260,13 +310,13 @@ function renderMailbox() {
+       return (
+         match &&
+         (!unreadOnly || !m.read) &&
+-        (!query ||
+-          `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(query.toLowerCase()))
++        (!term || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(term))
+       );
+     })
+     .sort((a, b) => b.date.localeCompare(a.date));
++  const children: Node[] = [];
+   if (!messages.length)
+-    messageList.append(
++    children.push(
+       e(
+         'div',
+         'empty-list',
+@@ -277,44 +327,103 @@ function renderMailbox() {
+             : 'Nothing here yet.',
+       ),
+     );
+-  for (const m of messages) {
+-    const b = button(
+-      '',
+-      () => {
+-        selection = m.id;
+-        if (m.folder === 'drafts') openCompose({ ...m, replyId: m.replyId });
+-        else void action(() => api.mark(m.id, { read: true }));
++  const visible = messages.slice(0, rowLimit);
++  const visibleIds = new Set(visible.map((m) => m.id));
++  for (const id of rowCache.keys()) if (!visibleIds.has(id)) rowCache.delete(id);
++  for (const m of visible) {
++    const key = JSON.stringify([
++      m.from,
++      m.to,
++      m.folder,
++      m.trash?.folder,
++      m.subject,
++      m.starred,
++      m.body.slice(0, 140),
++      m.date,
++      !!m.error,
++    ]);
++    let cached = rowCache.get(m.id);
++    if (!cached) {
++      const node = button('', () => {
++        const live = state.messages.find((value) => value.id === m.id);
++        if (!live) return;
++        selection = live.id;
++        if (live.folder === 'drafts') openCompose({ ...live, replyId: live.replyId });
++        else if (!live.read) void action(() => api.mark(live.id, { read: true }));
+         renderMailbox();
+-      },
+-      `message-row ${selection === m.id ? 'selected ' : ''}${!m.read ? 'unread' : ''}`,
+-    );
+-    const top = e('div', 'row-top');
+-    top.append(
+-      e(
+-        'span',
+-        'sender',
+-        (m.folder === 'trash' ? m.trash?.folder : m.folder) === 'inbox' ? m.from : `To: ${m.to}`,
+-      ),
+-      e('time', '', date(m.date)),
+-    );
+-    b.append(
+-      top,
+-      e('div', 'subject', `${m.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
+-      e('p', 'preview', m.body.replace(/\n/g, ' ').slice(0, 140)),
+-    );
+-    if (m.folder === 'outbox')
+-      b.append(
++      });
++      cached = { key: '', node };
++      rowCache.set(m.id, cached);
++    }
++    const b = cached.node;
++    const cls = `message-row ${selection === m.id ? 'selected ' : ''}${!m.read ? 'unread' : ''}`;
++    if (b.className !== cls) b.className = cls;
++    if (cached.key !== key) {
++      cached.key = key;
++      const top = e('div', 'row-top');
++      top.append(
+         e(
+           'span',
+-          m.error ? 'delivery failed' : 'delivery',
+-          m.error ? 'Needs retry' : 'Queued for next exchange',
++          'sender',
++          (m.folder === 'trash' ? m.trash?.folder : m.folder) === 'inbox' ? m.from : `To: ${m.to}`,
+         ),
++        e('time', '', date(m.date)),
+       );
+-    messageList.append(b);
++      b.replaceChildren(
++        top,
++        e('div', 'subject', `${m.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
++        e('p', 'preview', m.body.slice(0, 140).replace(/\n/g, ' ')),
++      );
++      if (m.folder === 'outbox')
++        b.append(
++          e(
++            'span',
++            m.error ? 'delivery failed' : 'delivery',
++            m.error ? 'Needs retry' : 'Queued for next exchange',
++          ),
++        );
++    }
++    children.push(b);
++  }
++  if (messages.length > rowLimit) {
++    moreMessages ??= button(
++      'Show older messages',
++      () => {
++        rowLimit += 200;
++        renderMailbox();
++      },
++      'load-more',
++    );
++    children.push(moreMessages);
+   }
++  reconcileChildren(messageList, children);
++  if (changedView) messageList.scrollTop = 0;
+   const selected = messages.find((m) => m.id === selection);
+-  if (selected) renderMessage(selected);
+-  else {
++  if (selected) {
++    const { thread, responses } = conversation(selected);
++    const key = JSON.stringify([
++      { ...selected, read: undefined, starred: undefined },
++      thread.map((m) => [m.id, m.from, m.body, m.date]),
++      responses.map((m) => [m.id, m.from, m.subject]),
++    ]);
++    if (readerKey !== key) {
++      const scroll = readerSelection === selected.id ? reader.scrollTop : 0;
++      readerSelection = selected.id;
++      readerKey = key;
++      reader.replaceChildren();
++      renderMessage(selected, thread, responses);
++      reader.scrollTop = scroll;
++    }
++    const star = reader.querySelector<HTMLButtonElement>('[data-message-flag="star"]');
++    const read = reader.querySelector<HTMLButtonElement>('[data-message-flag="read"]');
++    if (star) setText(star, selected.starred ? '★ Starred' : '☆ Star');
++    if (read) setText(read, selected.read ? 'Mark unread' : 'Mark read');
++    renderRuntime();
++  } else {
++    if (readerKey === 'empty') return;
++    readerKey = 'empty';
++    readerSelection = '';
++    reader.replaceChildren();
+     const empty = e('div', 'empty-reader');
+     empty.append(
+       e('div', 'letter-icon', '✉'),
+@@ -324,7 +433,34 @@ function renderMailbox() {
+     reader.append(empty);
+   }
+ }
+-function renderMessage(m: Message) {
++function conversation(m: Message) {
++  // Thread only on explicit FTN MSGID/REPLY links within the same area. Never merge by subject.
++  const thread: Message[] = [];
++  const seen = new Set<string>();
++  let current: Message | undefined = m;
++  while (current && !seen.has(current.id) && thread.length < 50) {
++    thread.unshift(current);
++    seen.add(current.id);
++    const previous: string = current.replyId;
++    current =
++      previous && m.folder !== 'trash'
++        ? state.messages.find(
++            (x) => x.msgid === previous && x.area === m.area && x.folder !== 'trash',
++          )
++        : undefined;
++  }
++  const responses = state.messages.filter(
++    (x) =>
++      m.folder !== 'trash' &&
++      x.folder !== 'trash' &&
++      m.msgid &&
++      x.replyId === m.msgid &&
++      x.area === m.area &&
++      !seen.has(x.id),
++  );
++  return { thread, responses };
++}
++function renderMessage(m: Message, thread: Message[], responses: Message[]) {
+   const head = e('div', 'reader-heading');
+   head.append(
+     e(
+@@ -364,14 +500,20 @@ function renderMessage(m: Message) {
+       button(m.area ? 'Reply to discussion' : 'Reply', () => reply(m, false), 'primary'),
+       button(
+         m.starred ? '★ Starred' : '☆ Star',
+-        () => void action(() => api.mark(m.id, { starred: !m.starred })),
++        () =>
++          void action(() =>
++            api.mark(m.id, { starred: !state.messages.find((x) => x.id === m.id)!.starred }),
++          ),
+       ),
+     );
+     if (m.area) actions.append(button('Reply privately', () => reply(m, true)));
+     actions.append(
+       button(
+         m.read ? 'Mark unread' : 'Mark read',
+-        () => void action(() => api.mark(m.id, { read: !m.read })),
++        () =>
++          void action(() =>
++            api.mark(m.id, { read: !state.messages.find((x) => x.id === m.id)!.read }),
++          ),
+       ),
+       button('Save contact', () => contactDialog(m.from, m.fromAddress)),
+       button('Details', () => details(m)),
+@@ -395,12 +537,18 @@ function renderMessage(m: Message) {
+       ),
+     );
+   for (const control of actions.querySelectorAll('button')) {
++    if (['★ Starred', '☆ Star'].includes(control.textContent || ''))
++      control.dataset.messageFlag = 'star';
++    if (['Mark unread', 'Mark read'].includes(control.textContent || ''))
++      control.dataset.messageFlag = 'read';
+     if (
+       ['Delete', 'Delete draft', 'Delete permanently', 'Restore'].includes(
+         control.textContent || '',
+       )
+-    )
++    ) {
++      control.dataset.mailboxChange = '';
+       control.disabled = state.syncing;
++    }
+   }
+   head.append(actions);
+   reader.append(head);
+@@ -423,21 +571,6 @@ function renderMessage(m: Message) {
+       ),
+     );
+   if (m.error) reader.append(e('div', 'notice warning', m.error));
+-  // Thread only on explicit FTN MSGID/REPLY links within the same area. Never merge by subject.
+-  const thread: Message[] = [];
+-  const seen = new Set<string>();
+-  let current: Message | undefined = m;
+-  while (current && !seen.has(current.id) && thread.length < 50) {
+-    thread.unshift(current);
+-    seen.add(current.id);
+-    const previous: string = current.replyId;
+-    current =
+-      previous && m.folder !== 'trash'
+-        ? state.messages.find(
+-            (x) => x.msgid === previous && x.area === m.area && x.folder !== 'trash',
+-          )
+-        : undefined;
+-  }
+   for (const part of thread) {
+     const article = e('article', 'message-body');
+     if (thread.length > 1)
+@@ -446,15 +579,6 @@ function renderMessage(m: Message) {
+     article.append(text);
+     reader.append(article);
+   }
+-  const responses = state.messages.filter(
+-    (x) =>
+-      m.folder !== 'trash' &&
+-      x.folder !== 'trash' &&
+-      m.msgid &&
+-      x.replyId === m.msgid &&
+-      x.area === m.area &&
+-      !seen.has(x.id),
+-  );
+   if (responses.length) {
+     const box = e('div', 'thread-links');
+     box.append(e('h2', '', 'Replies'));
+@@ -1005,8 +1129,19 @@ document.addEventListener('keydown', (event) => {
+   }
+ });
+ if (api) {
+-  api.onChanged(() => {
+-    void refresh().catch((e) => notify(String(e), true));
++  api.onChanged((update?: RuntimeUpdate) => {
++    if (state && update && state.revision !== undefined && update.revision < state.revision) return;
++    if (state && update && !refreshing && state.revision === update.revision) {
++      const changedSync = state.syncing !== update.syncing;
++      state = { ...state, syncing: update.syncing, status: update.status || state.status };
++      renderRuntime();
++      if (changedSync) renderDiscussions?.();
++      return;
++    }
++    refreshTimer ??= setTimeout(() => {
++      refreshTimer = undefined;
++      void refresh().catch((e) => notify(String(e), true));
++    }, 16);
+   });
+   void refresh().catch((e) => notify(String(e), true));
+ } else {
+diff --git a/src/renderer/mailbox.ts b/src/renderer/mailbox.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e99a1a7e9841c97855147058a7ff83932110609f
+--- /dev/null
++++ b/src/renderer/mailbox.ts
+@@ -0,0 +1,28 @@
++import type { Message } from '../core/model.js';
++
++export function mailboxCounts(messages: Message[]) {
++  const folders = new Map<string, number>();
++  const unreadAreas = new Map<string, number>();
++  let unreadInbox = 0,
++    starred = 0;
++  for (const m of messages) {
++    folders.set(m.folder, (folders.get(m.folder) || 0) + 1);
++    if (m.starred && m.folder !== 'trash') starred++;
++    if (m.folder === 'inbox' && !m.read) {
++      if (m.area) unreadAreas.set(m.area, (unreadAreas.get(m.area) || 0) + 1);
++      else unreadInbox++;
++    }
++  }
++  folders.set('inbox', unreadInbox);
++  folders.set('starred', starred);
++  return { folders, unreadAreas };
++}
++
++/** Keep connected nodes in place when neither their order nor identity changed. */
++export function reconcileChildren(parent: HTMLElement, children: Node[]): void {
++  children.forEach((child, i) => {
++    const current = parent.childNodes[i];
++    if (current !== child) parent.insertBefore(child, current || null);
++  });
++  while (parent.childNodes.length > children.length) parent.lastChild!.remove();
++}
+diff --git a/src/renderer/style.css b/src/renderer/style.css
+index cbab69e7fef07d0552c905deb23ba72b217a57d2..77f26da27d3d8e82149869c6e3d6a007694c4324 100644
+--- a/src/renderer/style.css
++++ b/src/renderer/style.css
+@@ -95,6 +95,7 @@ textarea:focus-visible {
+   height: calc(100vh - 110px);
+   display: grid;
+   grid-template-columns: 224px 335px minmax(0, 1fr);
++  grid-template-rows: minmax(0, 1fr);
+ }
+ .sidebar {
+   padding: 22px 14px;
+@@ -181,6 +182,13 @@ textarea:focus-visible {
+ .message-list {
+   overflow: auto;
+   flex: 1;
++  min-height: 0;
++  scrollbar-gutter: stable;
++  overscroll-behavior: contain;
++}
++.load-more {
++  display: block;
++  margin: 16px auto;
+ }
+ .message-row {
+   display: block;
+@@ -249,6 +257,9 @@ button.danger {
+ .reader {
+   overflow: auto;
+   min-width: 0;
++  min-height: 0;
++  scrollbar-gutter: stable;
++  overscroll-behavior: contain;
+   background: var(--reading);
+ }
+ .reader-heading {
+diff --git a/tests/performance.test.ts b/tests/performance.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..91da42d230451a736ab3cd030b03140d1d53f32d
+--- /dev/null
++++ b/tests/performance.test.ts
+@@ -0,0 +1,89 @@
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import { Store } from '../src/core/store.js';
++import { mailboxCounts } from '../src/renderer/mailbox.js';
++import { parsePacket } from '../src/core/packet.js';
++import { incomingPacket, profile } from './fixtures.js';
++import type { Message } from '../src/core/model.js';
++
++const dirs: string[] = [];
++afterEach(() => {
++  vi.restoreAllMocks();
++  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
++});
++describe('mailbox performance without changing data semantics', () => {
++  it('counts folders and unread areas identically to the original filters for a large mailbox', () => {
++    const original = parsePacket(incomingPacket(), profile)[0];
++    const messages: Message[] = Array.from({ length: 10000 }, (_, i) => ({
++      ...original,
++      id: String(i),
++      folder: (['inbox', 'sent', 'drafts', 'outbox', 'trash'] as const)[i % 5],
++      read: i % 7 === 0,
++      starred: i % 11 === 0,
++      area: i % 3 === 0 ? '' : `AREA_${i % 200}`,
++    }));
++    const counts = mailboxCounts(messages);
++    for (const folder of ['inbox', 'sent', 'drafts', 'outbox', 'trash', 'starred']) {
++      const expected = messages.filter((m) =>
++        folder === 'starred'
++          ? m.starred && m.folder !== 'trash'
++          : folder === 'inbox'
++            ? m.folder === 'inbox' && !m.area && !m.read
++            : m.folder === folder,
++      ).length;
++      expect(counts.folders.get(folder)).toBe(expected);
++    }
++    for (let i = 0; i < 200; i++)
++      expect(counts.unreadAreas.get(`AREA_${i}`) || 0).toBe(
++        messages.filter((m) => m.area === `AREA_${i}` && m.folder === 'inbox' && !m.read).length,
++      );
++  });
++  it('does not rewrite the SQLite snapshot for repeated unchanged flags', async () => {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'packetlark-performance-'));
++    dirs.push(dir);
++    const s = await Store.open(
++      path.join(dir, 'mailbox.sqlite'),
++      path.resolve('node_modules/sql.js/dist/sql-wasm.wasm'),
++      (s) => s,
++      (s) => s,
++    );
++    s.install(profile);
++    const incoming = parsePacket(incomingPacket(), profile)[0];
++    s.receive([incoming]);
++    s.mark(incoming.id, { read: true });
++    const revision = s.revision,
++      snapshot = s.backup();
++    const writes = vi.spyOn(fs, 'renameSync');
++    for (let i = 0; i < 50; i++) s.mark(incoming.id, { read: true, starred: false });
++    expect(writes).not.toHaveBeenCalled();
++    expect(s.revision).toBe(revision);
++    expect(s.backup()).toEqual(snapshot);
++    s.mark(incoming.id, { starred: true });
++    expect(writes).toHaveBeenCalledTimes(1);
++    expect(s.revision).toBe(revision + 1);
++    s.close();
++  });
++  it('leaves the published revision and saved flags unchanged on a failed write', async () => {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'packetlark-performance-'));
++    dirs.push(dir);
++    const s = await Store.open(
++      path.join(dir, 'mailbox.sqlite'),
++      path.resolve('node_modules/sql.js/dist/sql-wasm.wasm'),
++      (s) => s,
++      (s) => s,
++    );
++    s.install(profile);
++    const incoming = parsePacket(incomingPacket(), profile)[0];
++    s.receive([incoming]);
++    const revision = s.revision;
++    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
++      throw new Error('Disk unavailable');
++    });
++    expect(() => s.mark(incoming.id, { read: true })).toThrow('Disk unavailable');
++    expect(s.revision).toBe(revision);
++    expect(s.messages()[0].read).toBe(false);
++    s.close();
++  });
++});
+diff --git a/tests/ui/mailbox.spec.ts b/tests/ui/mailbox.spec.ts
+index 32261c8b52f2bd04137b9232ad5ea5b894ec69f1..65271646da639857fa70f6c4ef6a4e9e87535be2 100644
+--- a/tests/ui/mailbox.spec.ts
++++ b/tests/ui/mailbox.spec.ts
+@@ -2,7 +2,7 @@ import { test as base, expect, _electron, type Page, type Locator } from '@playw
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+-import type { Compose, Message, State } from '../../src/core/model.js';
++import type { Compose, Message, RuntimeUpdate, State } from '../../src/core/model.js';
+ 
+ // Exercise the real Electron renderer against a mocked application API, without a downloaded browser.
+ // Playwright requires the destructuring signature even when no built-in fixtures are needed.
+@@ -43,7 +43,18 @@ const message: Message = {
+   error: '',
+   packetName: '',
+ };
++declare global {
++  interface Window {
++    packetlarkTest: {
++      stateReads(): number;
++      runtime(status: string, syncing?: boolean): void;
++      touch(): void;
++      replaceMessage(message: Message): void;
++    };
++  }
++}
+ const state: State = {
++  revision: 0,
+   account: {
+     name: 'Mike',
+     address: '1:123/456.100@fidonet',
+@@ -77,7 +88,12 @@ async function click(locator: Locator) {
+   if (process.env.RETROPOST_HEADLESS === '1') await locator.dispatchEvent('click');
+   else await locator.click();
+ }
+-async function setup(page: Page, account = true, directory = state.discussions) {
++async function setup(
++  page: Page,
++  account = true,
++  directory = state.discussions,
++  messages = state.messages,
++) {
+   await page.addInitScript(
+     ({ initial, account }) => {
+       const data = structuredClone(initial);
+@@ -87,8 +103,30 @@ async function setup(page: Page, account = true, directory = state.discussions)
+         data.areas = [];
+       }
+       let listSent = false;
+-      const changed: (() => void)[] = [];
+-      const emit = () => changed.forEach((cb) => cb());
++      let stateReads = 0;
++      const changed: ((update?: RuntimeUpdate) => void)[] = [];
++      const emit = (dataChanged = true) => {
++        if (dataChanged) data.revision = (data.revision || 0) + 1;
++        changed.forEach((cb) =>
++          cb({ revision: data.revision!, syncing: data.syncing, status: data.status }),
++        );
++      };
++      window.packetlarkTest = {
++        stateReads: () => stateReads,
++        runtime: (status, syncing = false) => {
++          data.status = status;
++          data.syncing = syncing;
++          emit(false);
++        },
++        touch: () => {
++          emit();
++        },
++        replaceMessage: (message) => {
++          data.messages = data.messages.filter((m) => m.id !== message.id);
++          data.messages.push(message);
++          emit();
++        },
++      };
+       const make = (c: Compose, folder: Message['folder']): Message => ({
+         ...data.messages[0],
+         ...c,
+@@ -106,15 +144,17 @@ async function setup(page: Page, account = true, directory = state.discussions)
+       });
+       Object.defineProperty(window, 'packetlark', {
+         value: {
+-          state: async () =>
+-            structuredClone({
++          state: async () => {
++            stateReads++;
++            return structuredClone({
+               ...data,
+               messages: data.messages.filter((m) => !m.internal),
+               discussions: {
+                 ...data.discussions,
+                 queued: data.messages.filter((m) => m.folder === 'outbox').map((m) => m.id),
+               },
+-            }),
++            });
++          },
+           importAccount: async () => true,
+           sync: async () => {
+             if (data.discussions.requestId) {
+@@ -252,14 +292,14 @@ async function setup(page: Page, account = true, directory = state.discussions)
+             emit();
+           },
+           backup: async () => {},
+-          onChanged: (cb: () => void) => {
++          onChanged: (cb: (update?: RuntimeUpdate) => void) => {
+             changed.push(cb);
+             return () => {};
+           },
+         },
+       });
+     },
+-    { initial: { ...state, discussions: directory }, account },
++    { initial: { ...state, discussions: directory, messages }, account },
+   );
+   await page.goto('http://127.0.0.1:4173/');
+ }
+@@ -486,3 +526,150 @@ test('keeps management traffic out of Inbox, Outbox, Sent and Trash while subscr
+     await expect(page.locator('.message-row').filter({ hasText: '%LIST' })).toHaveCount(0);
+   }
+ });
++
++test('status updates preserve the reader, text selection, rows, and scroll without fetching snapshots', async ({
++  page,
++}) => {
++  await setup(page, true, state.discussions, [
++    { ...message, read: true, body: 'A long conversation.\n'.repeat(150) },
++  ]);
++  await click(page.locator('.message-row').first());
++  const body = await page.locator('.body-text').elementHandle();
++  const row = await page.locator('.message-row').elementHandle();
++  const before = await page.evaluate(() => {
++    const text = document.querySelector('.body-text')!.firstChild!;
++    const range = document.createRange();
++    range.setStart(text, 0);
++    range.setEnd(text, 6);
++    window.getSelection()!.removeAllRanges();
++    window.getSelection()!.addRange(range);
++    document.querySelector('.reader')!.scrollTop = 100;
++    return {
++      reads: window.packetlarkTest.stateReads(),
++      scroll: document.querySelector('.reader')!.scrollTop,
++      selectedText: window.getSelection()!.toString(),
++    };
++  });
++  await page.evaluate(() => {
++    for (let i = 0; i < 50; i++) window.packetlarkTest.runtime(`Transfer ${i}`);
++  });
++  await expect(page.locator('.statusbar')).toContainText('Transfer 49');
++  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
++    true,
++  );
++  expect(await page.locator('.message-row').evaluate((current, old) => current === old, row)).toBe(
++    true,
++  );
++  if (process.env.RETROPOST_HEADLESS !== '1') expect(before.selectedText).toBe('A long');
++  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(before.selectedText);
++  expect(await page.evaluate(() => window.packetlarkTest.stateReads())).toBe(before.reads);
++  expect(await page.locator('.reader').evaluate((node) => node.scrollTop)).toBe(before.scroll);
++  await page.evaluate(() => window.packetlarkTest.runtime('Connecting', true));
++  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
++  await page.evaluate(() => window.packetlarkTest.runtime('Ready', false));
++  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
++});
++
++test('flag changes update controls while retaining the selected body and row', async ({ page }) => {
++  await setup(page);
++  await click(page.locator('.message-row').first());
++  const body = await page.locator('.body-text').elementHandle();
++  const row = await page.locator('.message-row').elementHandle();
++  await click(page.getByRole('button', { name: '☆ Star', exact: true }));
++  await expect(page.getByRole('button', { name: '★ Starred', exact: true })).toBeVisible();
++  await click(page.getByRole('button', { name: '★ Starred', exact: true }));
++  await expect(page.getByRole('button', { name: '☆ Star', exact: true })).toBeVisible();
++  await click(page.getByRole('button', { name: 'Mark unread', exact: true }));
++  await expect(page.getByRole('button', { name: 'Mark read', exact: true })).toBeVisible();
++  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
++    true,
++  );
++  expect(await page.locator('.message-row').evaluate((current, old) => current === old, row)).toBe(
++    true,
++  );
++});
++
++test('bounds a large mailbox and searches messages beyond the initial displayed rows', async ({
++  page,
++}) => {
++  await setup(
++    page,
++    true,
++    state.discussions,
++    Array.from({ length: 1200 }, (_, i) => ({
++      ...message,
++      id: `large-${i}`,
++      msgid: `large ${i}`,
++      subject: `Unique conversation ${i}`,
++      read: true,
++      date: new Date(Date.UTC(2026, 9, 14, 18, 0, 0) - i * 1000).toISOString(),
++    })),
++  );
++  await expect(page.locator('.message-row')).toHaveCount(200);
++  const first = await page.locator('.message-row').first().elementHandle();
++  await click(page.getByRole('button', { name: 'Show older messages', exact: true }));
++  await expect(page.locator('.message-row')).toHaveCount(400);
++  expect(
++    await page
++      .locator('.message-row')
++      .first()
++      .evaluate((current, old) => current === old, first),
++  ).toBe(true);
++  await page
++    .getByRole('searchbox', { name: 'Search messages', exact: true })
++    .fill('Unique conversation 1199');
++  await expect(page.locator('.message-row')).toHaveCount(1);
++  await expect(page.locator('.message-row')).toContainText('Unique conversation 1199');
++  await page.getByRole('searchbox', { name: 'Search messages', exact: true }).fill('');
++  await expect(page.locator('.message-row')).toHaveCount(200);
++});
++
++test('coalesces data notifications and still refreshes changed message contents', async ({
++  page,
++}) => {
++  await setup(page, true, state.discussions, [{ ...message, read: true }]);
++  await click(page.locator('.message-row').first());
++  const reads = await page.evaluate(() => window.packetlarkTest.stateReads());
++  await page.evaluate(() => {
++    for (let i = 0; i < 100; i++) window.packetlarkTest.touch();
++  });
++  await expect.poll(() => page.evaluate(() => window.packetlarkTest.stateReads())).toBe(reads + 1);
++  await page.evaluate(
++    (m) =>
++      window.packetlarkTest.replaceMessage({ ...m, read: true, body: 'Changed content arrived.' }),
++    message,
++  );
++  await expect(page.locator('.body-text')).toHaveText('Changed content arrived.');
++});
++
++test('inserts newly received mail without remounting existing rows or the selected conversation', async ({
++  page,
++}) => {
++  await setup(page, true, state.discussions, [{ ...message, read: true }]);
++  await click(page.locator('.message-row'));
++  const row = await page.locator('.message-row').elementHandle();
++  const body = await page.locator('.body-text').elementHandle();
++  await page.evaluate(
++    (m) =>
++      window.packetlarkTest.replaceMessage({
++        ...m,
++        id: 'new-arrival',
++        msgid: 'new arrival',
++        subject: 'A newly arrived message',
++        date: '2026-10-15T00:00:00Z',
++      }),
++    message,
++  );
++  await expect(page.locator('.message-row')).toHaveCount(2);
++  await expect(page.locator('.message-row').first()).toContainText('A newly arrived message');
++  expect(
++    await page
++      .locator('.message-row')
++      .nth(1)
++      .evaluate((current, old) => current === old, row),
++  ).toBe(true);
++  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
++    true,
++  );
++  await expect(page.getByRole('button', { name: /^Inbox/ }).locator('.count')).toHaveText('1');
++});
+diff --git a/tools/smoke-desktop.mjs b/tools/smoke-desktop.mjs
+index 88552849c5dab88b6c367f358d8932708aef7d2f..90b3c2cfa36af541619293e5ee26b78d2d4414ea 100644
+--- a/tools/smoke-desktop.mjs
++++ b/tools/smoke-desktop.mjs
+@@ -22,9 +22,24 @@ try {
+   assert.deepEqual(security, { sandbox: true, nodeIntegration: false, contextIsolation: true });
+   const state = await window.evaluate(() => window.packetlark.state());
+   assert.equal(state.account, null);
++  const update = await window.evaluate(async () => {
++    const changed = new Promise((resolve) => {
++      const off = window.packetlark.onChanged((value) => {
++        off();
++        resolve(value);
++      });
++    });
++    await window.packetlark.contact('IPC smoke contact', '1:123/456');
++    return { event: await changed, state: await window.packetlark.state() };
++  });
++  assert.ok(update.state.revision > state.revision);
++  assert.equal(update.event.revision, update.state.revision);
++  assert.equal(update.state.contacts[0].name, 'IPC smoke contact');
+   assert.equal(await window.evaluate(() => typeof window.require), 'undefined');
+   await window.screenshot({ path: 'test-results/desktop-welcome.png' });
+-  console.log('Desktop smoke passed: preload IPC, initial mailbox, and renderer isolation.');
++  console.log(
++    'Desktop smoke passed: preload IPC, revision notifications, mailbox refresh, and renderer isolation.',
++  );
+ } finally {
+   await desktop?.close();
+   fs.rmSync(data, { recursive: true, force: true });
