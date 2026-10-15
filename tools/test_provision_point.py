@@ -206,11 +206,12 @@ class ProvisionTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_reads_real_synchronet_dir_section_and_supports_explicit_override(self):
-        self.assertEqual(data_directory(self.config, None), self.data)
+        # Windows temp paths may use an 8.3 alias; compare directory identity.
+        self.assertTrue(data_directory(self.config, None).samefile(self.data))
         (self.config.parent / 'main.ini').write_text('!include other.ini\n')
         with self.assertRaisesRegex(ValueError, 'includes'):
             data_directory(self.config, None)
-        self.assertEqual(data_directory(self.config, self.data), self.data)
+        self.assertTrue(data_directory(self.config, self.data).samefile(self.data))
 
     def test_offline_mode_preserves_existing_stopped_bbs_workflow(self):
         mutex = self.config.parent / 'sbbsecho.bsy'
