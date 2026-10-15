@@ -66,6 +66,7 @@ const state: State = {
     },
   ],
   areas: [{ tag: 'TEST', name: 'Test discussion' }],
+  discussions: { entries: [], requestId: null, requestedAt: null, updatedAt: null, error: '' },
   contacts: [{ name: 'A friendly sysop', address: '1:123/456' }],
   syncing: false,
   status: 'Ready.',
@@ -76,7 +77,7 @@ async function click(locator: Locator) {
   if (process.env.RETROPOST_HEADLESS === '1') await locator.dispatchEvent('click');
   else await locator.click();
 }
-async function setup(page: Page, account = true) {
+async function setup(page: Page, account = true, directory = state.discussions) {
   await page.addInitScript(
     ({ initial, account }) => {
       const data = structuredClone(initial);
@@ -85,6 +86,7 @@ async function setup(page: Page, account = true) {
         data.messages = [];
         data.areas = [];
       }
+      let listSent = false;
       const changed: (() => void)[] = [];
       const emit = () => changed.forEach((cb) => cb());
       const make = (c: Compose, folder: Message['folder']): Message => ({
@@ -107,6 +109,37 @@ async function setup(page: Page, account = true) {
           state: async () => structuredClone(data),
           importAccount: async () => true,
           sync: async () => {
+            if (data.discussions.requestId) {
+              if (listSent) {
+                data.discussions.updatedAt = new Date().toISOString();
+                for (const [tag, name] of [
+                  ['GENERAL', 'General conversation'],
+                  ['TECH', 'Computers & technology'],
+                  ['DENIED', '<script>window.HACKED=true</script>'],
+                ])
+                  if (!data.discussions.entries.some((a) => a.tag === tag))
+                    data.discussions.entries.push({
+                      tag,
+                      name,
+                      subscription: 'left',
+                      confirmedAt: new Date().toISOString(),
+                      pending: null,
+                      error: '',
+                    });
+              }
+              listSent = true;
+            }
+            for (const entry of data.discussions.entries) {
+              if (!entry.pending) continue;
+              const m = data.messages.find((m) => m.id === entry.pending?.messageId);
+              if (m?.folder === 'sent') {
+                entry.subscription = entry.pending.action === 'join' ? 'joined' : 'left';
+                entry.pending = null;
+                if (entry.subscription === 'joined' && !data.areas.some((a) => a.tag === entry.tag))
+                  data.areas.push({ tag: entry.tag, name: entry.name });
+              }
+            }
+            for (const m of data.messages) if (m.folder === 'outbox') m.folder = 'sent';
             data.status = 'Up to date.';
             emit();
           },
@@ -141,7 +174,56 @@ async function setup(page: Page, account = true) {
             data.contacts.push({ name, address });
             emit();
           },
-          areaCommand: async () => {},
+          requestAreaList: async () => {
+            const id = crypto.randomUUID();
+            data.discussions.requestId = id;
+            data.discussions.requestedAt = new Date().toISOString();
+            data.messages.push(
+              make(
+                {
+                  ...data.messages[0],
+                  id,
+                  to: 'AreaFix',
+                  toAddress: '1:123/456',
+                  subject: 'secret',
+                  body: '%LIST',
+                },
+                'outbox',
+              ),
+            );
+            emit();
+          },
+          areaCommand: async (tag: string, join: boolean) => {
+            if (!/^[A-Z0-9_!][A-Z0-9_!.-]*$/.test(tag)) throw new Error('Invalid discussion tag.');
+            let entry = data.discussions.entries.find((a) => a.tag === tag);
+            if (!entry) {
+              entry = {
+                tag,
+                name: tag,
+                subscription: 'unknown',
+                confirmedAt: null,
+                pending: null,
+                error: '',
+              };
+              data.discussions.entries.push(entry);
+            }
+            const id = crypto.randomUUID();
+            entry.pending = { action: join ? 'join' : 'leave', messageId: id };
+            data.messages.push(
+              make(
+                {
+                  ...data.messages[0],
+                  id,
+                  to: 'AreaFix',
+                  toAddress: '1:123/456',
+                  subject: 'secret',
+                  body: `${join ? '+' : '-'}${tag}`,
+                },
+                'outbox',
+              ),
+            );
+            emit();
+          },
           backup: async () => {},
           onChanged: (cb: () => void) => {
             changed.push(cb);
@@ -150,7 +232,7 @@ async function setup(page: Page, account = true) {
         },
       });
     },
-    { initial: state, account },
+    { initial: { ...state, discussions: directory }, account },
   );
   await page.goto('http://127.0.0.1:4173/');
 }
@@ -212,4 +294,73 @@ test('applies dark-mode colors while preserving message text', async ({ page }) 
   expect(await page.locator('body').evaluate((node) => getComputedStyle(node).color)).toBe(
     'rgb(225, 230, 233)',
   );
+});
+
+test('discovers, searches, joins and leaves discussions with confirmed status', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ Manage discussions' }));
+  const browser = page.getByRole('dialog', { name: 'Manage discussions' });
+  await click(browser.getByRole('button', { name: 'Get available discussions' }));
+  await expect(browser.getByRole('status')).toContainText('Check for replies');
+  await click(browser.getByRole('button', { name: 'Check for replies' }));
+  await expect(browser.getByRole('button', { name: 'Refresh discussions' })).toBeEnabled();
+  await browser.getByLabel('Search discussions').fill('technology');
+  await expect(browser.locator('.discussion-row')).toHaveCount(1);
+  await expect(browser.locator('.discussion-row')).toContainText('TECH');
+  await click(browser.getByRole('button', { name: 'Join TECH', exact: true }));
+  await expect(browser.locator('.discussion-row')).toContainText('Join awaiting confirmation');
+  await click(browser.getByRole('button', { name: 'Check for replies' }));
+  await expect(browser.getByRole('button', { name: 'Leave TECH', exact: true })).toBeVisible();
+  await expect(browser.locator('.discussion-badge')).toHaveText('Joined');
+  await click(browser.getByRole('button', { name: 'Leave TECH', exact: true }));
+  await expect(browser.locator('.discussion-row')).toContainText('Leave awaiting confirmation');
+  await click(browser.getByRole('button', { name: 'Check for replies' }));
+  await expect(browser.locator('.discussion-badge')).toHaveText('Not joined');
+  await browser.getByRole('combobox', { name: 'Show', exact: true }).selectOption('joined');
+  await expect(browser.getByText('No matching discussions.', { exact: true })).toBeVisible();
+});
+
+test('keeps manual tag requests and renders provider descriptions as text', async ({ page }) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ Manage discussions' }));
+  const browser = page.getByRole('dialog');
+  await click(browser.getByRole('button', { name: 'Get available discussions' }));
+  await click(browser.getByRole('button', { name: 'Check for replies' }));
+  await expect(
+    browser.getByText('<script>window.HACKED=true</script>', { exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => Object.hasOwn(window, 'HACKED'))).toBe(false);
+  await click(browser.locator('summary'));
+  await browser.getByLabel('Discussion tag', { exact: true }).fill('custom_echo');
+  await click(browser.getByRole('button', { name: 'Request to join', exact: true }));
+  await browser.getByRole('combobox', { name: 'Show', exact: true }).selectOption('pending');
+  await expect(browser.locator('.discussion-row')).toHaveCount(1);
+  await expect(browser.locator('.discussion-row')).toContainText('CUSTOM_ECHO');
+});
+
+test('browses a large cached directory offline and paginates without losing search', async ({
+  page,
+}) => {
+  await setup(page, true, {
+    ...state.discussions,
+    updatedAt: '2026-10-15T00:00:00Z',
+    entries: Array.from({ length: 250 }, (_, i) => ({
+      tag: `AREA_${i}`,
+      name: `Discussion ${String(i).padStart(3, '0')}`,
+      subscription: 'left',
+      confirmedAt: null,
+      pending: null,
+      error: '',
+    })),
+  });
+  await click(page.getByRole('button', { name: '＋ Manage discussions' }));
+  const browser = page.getByRole('dialog');
+  await expect(browser.locator('.discussion-row')).toHaveCount(100);
+  await click(browser.getByRole('button', { name: 'Show more discussions' }));
+  await expect(browser.locator('.discussion-row')).toHaveCount(200);
+  await browser.getByLabel('Search discussions').fill('AREA_249');
+  await expect(browser.locator('.discussion-row')).toHaveCount(1);
+  await expect(browser.locator('.discussion-row')).toContainText('Discussion 249');
 });

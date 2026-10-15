@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { Store, atomicWrite } from '../core/store.js';
-import { areaSchema, composeSchema, draftSchema, profileSchema } from '../core/model.js';
+import { composeSchema, draftSchema, profileSchema } from '../core/model.js';
 import { exchange } from '../core/binkp.js';
 import { unpackMail } from '../core/packet.js';
 
@@ -195,20 +195,17 @@ function register() {
     emit();
   });
   handle('area', (tag, subscribe) => {
-    const p = store.profile();
-    if (!p?.uplink.areaFixPassword)
-      throw new Error('This account has no discussion-management password. Contact your provider.');
-    const area = areaSchema.parse(tag),
-      add = z.boolean().parse(subscribe);
-    store.queue({
-      to: 'AreaFix',
-      toAddress: p.uplink.address,
-      subject: p.uplink.areaFixPassword,
-      body: `${add ? '+' : '-'}${area}\n---`,
-      area: '',
-      replyId: '',
-    });
+    if (syncing) throw new Error('Wait for send & receive to finish before changing discussions.');
+    const add = z.boolean().parse(subscribe);
+    store.areaCommand(z.string().parse(tag), add);
     status = `${add ? 'Join' : 'Leave'} request queued. Your provider will reply after processing it.`;
+    emit();
+  });
+  handle('areaList', () => {
+    if (syncing)
+      throw new Error('Wait for send & receive to finish before requesting discussions.');
+    store.requestAreaList();
+    status = 'Discussion list requested. Your provider will reply after processing it.';
     emit();
   });
   handle('backup', async () => {

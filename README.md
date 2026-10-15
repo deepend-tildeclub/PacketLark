@@ -28,6 +28,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Plain-text display, UTF-8 and selected legacy outgoing encodings, incoming declared encodings supported by iconv-lite.
 - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
 - Explicit public replies and private replies, plus AreaFix join/leave requests.
+- Browse available discussions with descriptions, search and subscription filters; join or leave using buttons and track provider confirmations.
 - Raw Type-2+ packets and standard flat ZIP mail bundles on receive; raw Type-2+ packets on send.
 - Persist incoming mail before sending M_GOT; preserve outgoing bytes, filename, timestamp, and MSGID until acknowledged.
 - Back up the local mailbox using Account → Back up mailbox.

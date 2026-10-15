@@ -159,10 +159,26 @@ export type PublicAccount = {
   pollMinutes: number;
   charset: string;
 };
+export type Discussion = {
+  tag: string;
+  name: string;
+  subscription: 'unknown' | 'joined' | 'left';
+  confirmedAt: string | null;
+  pending: { action: 'join' | 'leave'; messageId: string } | null;
+  error: string;
+};
+export type DiscussionDirectory = {
+  entries: Discussion[];
+  requestId: string | null;
+  requestedAt: string | null;
+  updatedAt: string | null;
+  error: string;
+};
 export type State = {
   account: PublicAccount | null;
   messages: Message[];
   areas: { tag: string; name: string }[];
+  discussions: DiscussionDirectory;
   contacts: { name: string; address: string }[];
   syncing: boolean;
   status: string;
@@ -179,6 +195,7 @@ export type Api = {
   removeDraft(id: string): Promise<void>;
   contact(name: string, address: string): Promise<void>;
   areaCommand(tag: string, subscribe: boolean): Promise<void>;
+  requestAreaList(): Promise<void>;
   backup(): Promise<void>;
   onChanged(cb: () => void): () => void;
 };

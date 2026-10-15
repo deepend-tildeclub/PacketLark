@@ -19,6 +19,7 @@ const api: Api = {
   removeDraft: (id) => call('removeDraft', id),
   contact: (name, address) => call('contact', name, address),
   areaCommand: (tag, subscribe) => call('area', tag, subscribe),
+  requestAreaList: () => call('areaList'),
   backup: () => call('backup'),
   onChanged(cb) {
     const listener = () => cb();

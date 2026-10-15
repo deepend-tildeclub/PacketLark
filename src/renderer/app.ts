@@ -1,4 +1,4 @@
-import type { Api, Compose, Message, State } from '../core/model.js';
+import type { Api, Compose, Discussion, Message, State } from '../core/model.js';
 import './style.css';
 declare global {
   interface Window {
@@ -14,6 +14,7 @@ let state: State,
 let composer: HTMLDialogElement | null = null,
   refreshing = false,
   refreshAgain = false;
+let renderDiscussions: (() => void) | null = null;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 function e<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -181,6 +182,7 @@ function render() {
     e('div', 'sidebar-note', 'Independent conversations.\nDelivered through FidoNet.'),
   );
   renderMailbox();
+  renderDiscussions?.();
 }
 function renderMailbox() {
   if (!state) return;
@@ -665,36 +667,196 @@ function contactDialog(name = '', address = '') {
   body.append(form);
 }
 function areasDialog() {
-  const { body, close } = dialog('Manage discussions');
+  const { box, body } = dialog('Manage discussions');
+  box.classList.add('discussion-browser');
+  let busy = false,
+    limit = 100;
   body.append(
     e(
       'p',
-      '',
-      'Join or leave by discussion tag. Requests travel as messages; your provider’s reply confirms the result. New groups appear when their first post arrives.',
+      'muted',
+      'Find conversations offered by your provider. Joining sends a request; the provider confirms it after processing your mail.',
     ),
   );
-  const input = field(body, 'Discussion tag', '');
-  input.placeholder = 'SYNCHRONET';
-  body.append(
-    button(
-      'Request to join',
-      () =>
-        void action(async () => {
-          await api.areaCommand(input.value.trim().toUpperCase(), true);
-          close();
-        }),
-      'primary',
-    ),
-    button(
-      'Request to leave',
-      () =>
-        void action(async () => {
-          await api.areaCommand(input.value.trim().toUpperCase(), false);
-          close();
-        }),
-    ),
+  const controls = e('div', 'discussion-controls');
+  const listRequest = button(
+    'Get available discussions',
+    () => run(() => api.requestAreaList()),
+    'primary',
   );
+  const check = button('Check for replies', () => run(() => Promise.resolve()));
+  controls.append(listRequest, check);
+  const progress = e('p', 'discussion-progress muted');
+  progress.setAttribute('role', 'status');
+  const filters = e('div', 'form-row');
+  const find = field(filters, 'Search discussions', '', 'search');
+  find.placeholder = 'Search by name or tag';
+  const filterWrap = e('label', 'field');
+  filterWrap.append(e('span', '', 'Show'));
+  const filter = e('select');
+  for (const [value, title] of [
+    ['all', 'All discussions'],
+    ['joined', 'Joined'],
+    ['left', 'Not joined'],
+    ['pending', 'Pending requests'],
+  ])
+    filter.append(new Option(title, value));
+  filterWrap.append(filter);
+  filters.append(filterWrap);
+  const count = e('p', 'muted');
+  const results = e('ul', 'discussion-results');
+  results.setAttribute('aria-label', 'Available discussions');
+  const more = button('Show more discussions', () => {
+    limit += 100;
+    draw();
+  });
+  const manual = e('details', 'discussion-manual');
+  manual.append(e('summary', '', 'Join or leave using a tag'));
+  const tag = field(manual, 'Discussion tag');
+  tag.placeholder = 'Enter an exact echo tag';
+  manual.append(
+    button('Request to join', () => change(tag.value.trim().toUpperCase(), true)),
+    button('Request to leave', () => change(tag.value.trim().toUpperCase(), false)),
+  );
+  body.append(controls, progress, filters, count, results, more, manual);
+  function run(fn: () => Promise<unknown>) {
+    if (busy || state.syncing) return;
+    busy = true;
+    draw();
+    void action(async () => {
+      await fn();
+      await refresh();
+      await api.sync();
+    }).finally(() => {
+      busy = false;
+      if (box.open) draw();
+    });
+  }
+  function change(value: string, join: boolean) {
+    run(() => api.areaCommand(value, join));
+  }
+  function draw() {
+    const directory = state.discussions;
+    const outbox = new Set(state.messages.filter((m) => m.folder === 'outbox').map((m) => m.id));
+    const waiting = !!directory.requestId && outbox.has(directory.requestId);
+    listRequest.disabled = busy || state.syncing || waiting;
+    check.disabled = busy || state.syncing;
+    listRequest.textContent = directory.updatedAt
+      ? 'Refresh discussions'
+      : 'Get available discussions';
+    const messages = [
+      state.syncing
+        ? 'Exchanging mail…'
+        : waiting
+          ? 'List request queued.'
+          : directory.updatedAt &&
+              (!directory.requestedAt ||
+                Date.parse(directory.updatedAt) >= Date.parse(directory.requestedAt))
+            ? 'List received. You can check for more replies or refresh for changes.'
+            : directory.requestedAt
+              ? 'List requested. Check for replies after your provider processes the request.'
+              : 'Get the list to discover discussions you can join.',
+    ];
+    if (directory.updatedAt)
+      messages.push(
+        `List last received: ${date(directory.updatedAt)}. Cached entries remain available offline.`,
+      );
+    if (directory.error) messages.push(directory.error);
+    progress.textContent = messages.join(' ');
+    progress.classList.toggle('failed', !!directory.error);
+    // Existing profile groups and old mailbox areas remain available before the first list reply.
+    const entries = new Map<string, Discussion>(
+      state.areas.map((a) => [
+        a.tag,
+        {
+          ...a,
+          subscription: 'unknown',
+          confirmedAt: null,
+          pending: null,
+          error: '',
+        },
+      ]),
+    );
+    for (const entry of directory.entries) entries.set(entry.tag, entry);
+    const term = find.value.trim().toLocaleLowerCase();
+    const matching = [...entries.values()]
+      .filter(
+        (a) =>
+          (!term || `${a.tag} ${a.name}`.toLocaleLowerCase().includes(term)) &&
+          (filter.value === 'all' ||
+            (filter.value === 'pending' ? !!a.pending : a.subscription === filter.value)),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name) || a.tag.localeCompare(b.tag));
+    count.textContent = `${matching.length} discussion${matching.length === 1 ? '' : 's'}${matching.length > limit ? ` · showing ${limit}` : ''}`;
+    const focused = results.contains(document.activeElement)
+      ? (document.activeElement as HTMLElement).dataset.area
+      : null;
+    const scroll = results.scrollTop;
+    results.replaceChildren();
+    for (const area of matching.slice(0, limit)) {
+      const row = e('li', 'discussion-row');
+      const info = e('div', 'discussion-info');
+      info.append(e('strong', '', area.name), e('span', 'address muted', area.tag));
+      const status = area.pending
+        ? `${area.pending.action === 'join' ? 'Join' : 'Leave'} ${outbox.has(area.pending.messageId) ? 'queued' : 'awaiting confirmation'}`
+        : area.subscription === 'joined'
+          ? 'Joined'
+          : area.subscription === 'left'
+            ? 'Not joined'
+            : 'Subscription not checked';
+      const badge = e(
+        'span',
+        `discussion-badge ${area.pending ? 'pending' : area.subscription}`,
+        status,
+      );
+      info.append(badge);
+      if (area.error) info.append(e('span', 'failed', area.error));
+      const join = area.pending ? area.pending.action === 'join' : area.subscription !== 'joined';
+      const label = `${area.pending ? 'Retry ' : ''}${join ? 'join' : 'leave'}`;
+      const control = button(label[0].toUpperCase() + label.slice(1), () => change(area.tag, join));
+      control.setAttribute('aria-label', `${label[0].toUpperCase() + label.slice(1)} ${area.tag}`);
+      control.dataset.area = area.tag;
+      control.disabled =
+        busy || state.syncing || !!(area.pending && outbox.has(area.pending.messageId));
+      row.append(info, control);
+      results.append(row);
+    }
+    if (!matching.length)
+      results.append(
+        e(
+          'li',
+          'empty-list',
+          entries.size
+            ? 'No matching discussions.'
+            : directory.updatedAt
+              ? 'Your provider returned no available discussions. Contact your sysop if you expected more.'
+              : 'No list yet. Click Get available discussions to request it.',
+        ),
+      );
+    results.scrollTop = scroll;
+    if (focused)
+      [...results.querySelectorAll<HTMLButtonElement>('button')]
+        .find((b) => b.dataset.area === focused)
+        ?.focus({ preventScroll: true });
+    more.hidden = matching.length <= limit;
+    for (const control of manual.querySelectorAll('button'))
+      control.disabled = busy || state.syncing;
+  }
+  find.addEventListener('input', () => {
+    limit = 100;
+    draw();
+  });
+  filter.addEventListener('change', () => {
+    limit = 100;
+    draw();
+  });
+  renderDiscussions = draw;
+  box.addEventListener('close', () => {
+    if (renderDiscussions === draw) renderDiscussions = null;
+  });
+  draw();
 }
+
 function details(m: Message) {
   const { body } = dialog('Message details');
   body.append(

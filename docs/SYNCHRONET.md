@@ -52,6 +52,42 @@ The `--area` arguments list groups in the client sidebar. They **do not subscrib
 
 Allow only the groups you intend to offer this point. Existing SBBSecho EchoList keys, area permissions, and security remain authoritative. The tool does not grant access to restricted EchoLists or modify `areas.bbs`/`areas.ini`. You may also manually add the point as a link to an existing group using your normal sysop procedure.
 
+## Browse and subscribe from PacketLark
+
+Open **Manage discussions → Get available discussions**. PacketLark queues a
+single authenticated AreaFix message containing `%LIST`, `%QUERY`, and `%UNLINKED`,
+then starts a mail exchange. SBBSecho's normal inbound/outbound events must process
+the request. Use **Check for replies** after processing, or wait for normal polling.
+The browser updates while open as replies arrive.
+
+Search by description or echo tag, or filter to joined areas, unjoined areas, and
+pending requests. Use **Join** or **Leave** beside a discussion; either action
+queues the command and starts an exchange. Transport acknowledgement only means
+the request was delivered. The status remains pending until SBBSecho confirms the
+change. A confirmed join adds the discussion to the sidebar before its first post.
+Leaving keeps downloaded messages accessible. After delivery, a pending request
+can be retried if its response was lost; read the provider's original netmail
+response when investigating a failure.
+
+Descriptions and subscription status come from your existing SBBSecho area file,
+sub-board configuration, and authorized EchoLists. Existing AreaFix permissions
+remain authoritative. No HTTP endpoint, new BBS script, or provisioning change is
+required. Areas can have their tag as a name if the provider has no description.
+
+The directory is cached in the existing mailbox and survives restarts. Large
+lists load 100 rows at a time, and searches cover the entire cached list. SBBSecho
+splits long replies into multiple netmails with the same title and no part index;
+PacketLark merges each part, keeping cached entries instead of inferring removal
+from an incomplete list. Refreshing may therefore retain older entries; the BBS
+still decides whether a join is allowed. Connected and unlinked replies update
+the last confirmed status. Only private replies from SBBSecho/AreaFix at the
+configured boss address, addressed to this point, are interpreted. Original
+replies remain in the Inbox. Other tossers can still be managed through manual
+tag requests, but automatic reply parsing currently targets SBBSecho's formats.
+
+The **Join or leave using a tag** section preserves manual requests for areas not
+yet listed. Provisioned sidebar areas are not assumed to be subscriptions.
+
 ## Acceptance test before inviting users
 
 Use one disposable point account and a local/test discussion first.

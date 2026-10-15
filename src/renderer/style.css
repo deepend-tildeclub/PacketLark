@@ -539,6 +539,73 @@ dialog::backdrop {
   max-height: 50vh;
   overflow: auto;
 }
+.discussion-browser {
+  max-width: 820px;
+}
+.discussion-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.discussion-progress {
+  min-height: 40px;
+}
+.discussion-results {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px;
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.discussion-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px;
+  border-bottom: 1px solid var(--border);
+}
+.discussion-row:last-child {
+  border-bottom: 0;
+}
+.discussion-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.discussion-row button {
+  flex-shrink: 0;
+  min-width: 86px;
+}
+.discussion-badge {
+  font-size: 11px;
+  color: var(--muted);
+}
+.discussion-badge.joined {
+  color: var(--accent-text);
+}
+.discussion-badge.pending {
+  color: var(--public);
+}
+.discussion-manual {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 15px;
+}
+.discussion-manual summary {
+  cursor: pointer;
+  margin-bottom: 15px;
+  font-size: 13px;
+}
+.discussion-manual button {
+  margin-right: 10px;
+}
 #toast {
   display: none;
 }
