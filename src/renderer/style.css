@@ -161,13 +161,34 @@ textarea:focus-visible {
   min-height: 0;
 }
 .list-heading {
-  height: 72px;
+  min-height: 72px;
+  flex-shrink: 0;
   padding: 15px 19px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
+}
+.list-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.message-sort {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.message-sort select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
 }
 .list-heading h1 {
   font-size: 18px;

@@ -1,12 +1,19 @@
 import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
 import './style.css';
-import { mailboxCounts, reconcileChildren } from './mailbox.js';
+import { mailboxCounts, messageSort, reconcileChildren, sortMessages } from './mailbox.js';
 declare global {
   interface Window {
     packetlark: Api;
   }
 }
 const api = window.packetlark;
+const sortPreference = 'packetlark.messageSort';
+let sortOrder = messageSort(null);
+try {
+  sortOrder = messageSort(localStorage.getItem(sortPreference));
+} catch {
+  // Keep the mailbox usable when browser preference storage is unavailable.
+}
 let state: State,
   folder = 'inbox',
   selection = '',
@@ -101,6 +108,28 @@ reader.setAttribute('aria-label', 'Message reader');
 const listHeading = e('div', 'list-heading'),
   messageList = e('div', 'message-list');
 messageList.setAttribute('aria-label', 'Messages');
+const sortLabel = e('label', 'message-sort', 'Sort ');
+const sortMenu = e('select');
+sortMenu.setAttribute('aria-label', 'Sort messages');
+for (const [value, title] of [
+  ['newest', 'Newest first'],
+  ['oldest', 'Oldest first'],
+]) {
+  const option = e('option', '', title);
+  option.value = value;
+  sortMenu.append(option);
+}
+sortMenu.value = sortOrder;
+sortMenu.addEventListener('change', () => {
+  sortOrder = messageSort(sortMenu.value);
+  try {
+    localStorage.setItem(sortPreference, sortOrder);
+  } catch {
+    // Sorting still works for this session if preferences cannot be saved.
+  }
+  renderMailbox();
+});
+sortLabel.append(sortMenu);
 listPanel.append(listHeading, messageList);
 workspace.append(sidebar, listPanel, reader);
 const footer = e('footer', 'statusbar');
@@ -275,7 +304,7 @@ function renderMailbox() {
   const title = area
     ? state.areas.find((a) => a.tag === area)?.name || area
     : folder[0].toUpperCase() + folder.slice(1);
-  const viewKey = JSON.stringify([folder, query, unreadOnly]);
+  const viewKey = JSON.stringify([folder, query, unreadOnly, sortOrder]);
   const changedView = viewKey !== listViewKey;
   if (changedView) {
     rowLimit = 200;
@@ -295,11 +324,13 @@ function renderMailbox() {
       'small',
     );
     filter.setAttribute('aria-pressed', String(unreadOnly));
-    listHeading.append(filter);
+    const controls = e('div', 'list-controls');
+    controls.append(filter, sortLabel);
+    listHeading.append(controls);
   }
   const term = query.toLowerCase();
-  const messages = state.messages
-    .filter((m) => {
+  const messages = sortMessages(
+    state.messages.filter((m) => {
       const match = area
         ? m.area === area && m.folder === 'inbox'
         : folder === 'starred'
@@ -312,8 +343,9 @@ function renderMailbox() {
         (!unreadOnly || !m.read) &&
         (!term || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(term))
       );
-    })
-    .sort((a, b) => b.date.localeCompare(a.date));
+    }),
+    sortOrder,
+  );
   const children: Node[] = [];
   if (!messages.length)
     children.push(
@@ -394,6 +426,7 @@ function renderMailbox() {
       },
       'load-more',
     );
+    setText(moreMessages, sortOrder === 'newest' ? 'Show older messages' : 'Show newer messages');
     children.push(moreMessages);
   }
   reconcileChildren(messageList, children);

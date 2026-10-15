@@ -673,3 +673,121 @@ test('inserts newly received mail without remounting existing rows or the select
   );
   await expect(page.getByRole('button', { name: /^Inbox/ }).locator('.count')).toHaveText('1');
 });
+
+test('defaults to chronological newest first and remembers sorting without remounting the reader', async ({
+  page,
+}) => {
+  const messages = [
+    {
+      ...message,
+      id: 'older',
+      subject: 'Earlier message',
+      date: '2026-10-15T01:00:00+03:00',
+      read: true,
+    },
+    { ...message, id: 'newer', subject: 'Later message', date: '2026-10-14T23:00:00Z', read: true },
+  ];
+  await setup(page, true, state.discussions, messages);
+  const sort = page.getByRole('combobox', { name: 'Sort messages', exact: true });
+  await expect(sort).toHaveValue('newest');
+  await expect(page.locator('.message-row .subject')).toHaveText([
+    'Later message',
+    'Earlier message',
+  ]);
+  await click(page.locator('.message-row').first());
+  const body = await page.locator('.body-text').elementHandle();
+  const row = await page.locator('.message-row').first().elementHandle();
+  await sort.selectOption('oldest');
+  await expect(page.locator('.message-row .subject')).toHaveText([
+    'Earlier message',
+    'Later message',
+  ]);
+  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
+    true,
+  );
+  expect(
+    await page
+      .locator('.message-row')
+      .nth(1)
+      .evaluate((current, old) => current === old, row),
+  ).toBe(true);
+  await expect(page.locator('.message-row.selected')).toContainText('Later message');
+  await click(page.getByRole('button', { name: 'Test discussion', exact: true }));
+  await expect(sort).toHaveValue('oldest');
+  await click(page.getByRole('button', { name: /^Inbox/ }));
+  await page.reload();
+  await expect(sort).toHaveValue('oldest');
+  await expect(page.locator('.message-row .subject')).toHaveText([
+    'Earlier message',
+    'Later message',
+  ]);
+});
+
+test('sorts the entire folder before pagination and retains filters and arrivals', async ({
+  page,
+}) => {
+  const messages = Array.from({ length: 450 }, (_, i) => ({
+    ...message,
+    id: `sort-${i}`,
+    subject: `Sortable message ${i}`,
+    date: new Date(Date.UTC(2026, 9, 14) + i * 1000).toISOString(),
+    read: i % 2 === 0,
+  }));
+  await setup(page, true, state.discussions, messages);
+  const sort = page.getByRole('combobox', { name: 'Sort messages', exact: true });
+  await expect(page.locator('.message-row').first().locator('.subject')).toHaveText(
+    'Sortable message 449',
+  );
+  await sort.selectOption('oldest');
+  await expect(page.locator('.message-row')).toHaveCount(200);
+  await expect(page.locator('.message-row').first().locator('.subject')).toHaveText(
+    'Sortable message 0',
+  );
+  await click(page.getByRole('button', { name: 'Show newer messages', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(400);
+  await click(page.getByRole('button', { name: 'Unread only', exact: true }));
+  await expect(page.locator('.message-row').first().locator('.subject')).toHaveText(
+    'Sortable message 1',
+  );
+  const search = page.getByRole('searchbox', { name: 'Search messages', exact: true });
+  await search.fill('Sortable message 449');
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await expect(page.locator('.message-row')).toContainText('Sortable message 449');
+  await search.fill('');
+  await click(page.getByRole('button', { name: 'Unread only ✓', exact: true }));
+  await page.evaluate(
+    (m) =>
+      window.packetlarkTest.replaceMessage({
+        ...m,
+        id: 'arrival',
+        date: '2026-10-16T00:00:00Z',
+        subject: 'Newest arrival',
+      }),
+    message,
+  );
+  await sort.selectOption('newest');
+  await expect(page.locator('.message-row')).toHaveCount(200);
+  await expect(page.locator('.message-row').first()).toContainText('Newest arrival');
+  await expect(
+    page.getByRole('button', { name: 'Show older messages', exact: true }),
+  ).toBeVisible();
+});
+
+test('keeps sorting usable when preference storage is unavailable', async ({ page }) => {
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => {
+      throw new Error('Preferences unavailable');
+    };
+    Storage.prototype.setItem = () => {
+      throw new Error('Preferences unavailable');
+    };
+  });
+  await setup(page);
+  const sort = page.getByRole('combobox', { name: 'Sort messages', exact: true });
+  await expect(sort).toHaveValue('newest');
+  await sort.selectOption('oldest');
+  await expect(sort).toHaveValue('oldest');
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await page.reload();
+  await expect(sort).toHaveValue('newest');
+});

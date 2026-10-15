@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '../src/core/store.js';
-import { mailboxCounts } from '../src/renderer/mailbox.js';
+import { mailboxCounts, messageSort, sortMessages } from '../src/renderer/mailbox.js';
 import { parsePacket } from '../src/core/packet.js';
 import { incomingPacket, profile } from './fixtures.js';
 import type { Message } from '../src/core/model.js';
@@ -14,6 +14,36 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 describe('mailbox performance without changing data semantics', () => {
+  it('sorts actual message timestamps across UTC offsets without mutating the mailbox', () => {
+    const original = parsePacket(incomingPacket(), profile)[0];
+    const messages = [
+      { ...original, id: 'older', date: '2026-10-15T01:00:00+03:00' },
+      { ...original, id: 'invalid', date: 'Unknown date' },
+      { ...original, id: 'newer', date: '2026-10-14T23:00:00Z' },
+      { ...original, id: 'same-instant', date: '2026-10-14T17:00:00-06:00' },
+    ];
+    const before = structuredClone(messages);
+    expect(sortMessages(messages, 'newest').map((m) => m.id)).toEqual([
+      'newer',
+      'same-instant',
+      'older',
+      'invalid',
+    ]);
+    expect(sortMessages(messages, 'oldest').map((m) => m.id)).toEqual([
+      'older',
+      'newer',
+      'same-instant',
+      'invalid',
+    ]);
+    expect(messages).toEqual(before);
+    expect(sortMessages([], 'newest')).toEqual([]);
+  });
+  it('defaults missing or unsupported sort preferences to newest first', () => {
+    expect(messageSort(null)).toBe('newest');
+    expect(messageSort('unsupported')).toBe('newest');
+    expect(messageSort('newest')).toBe('newest');
+    expect(messageSort('oldest')).toBe('oldest');
+  });
   it('counts folders and unread areas identically to the original filters for a large mailbox', () => {
     const original = parsePacket(incomingPacket(), profile)[0];
     const messages: Message[] = Array.from({ length: 10000 }, (_, i) => ({

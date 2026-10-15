@@ -23,7 +23,8 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 
 - Import a provider-issued account and keep credentials in OS-protected storage.
 - Direct messages and public discussions, with a three-pane reader.
-- Large folders initially show 200 messages; **Show older messages** loads more, while search covers every message in the selected folder.
+- Messages default to **Newest first**. The **Sort** menu also offers **Oldest first** and remembers your choice on this device across folders, discussions, and restarts.
+- Large folders initially show 200 messages; **Show older messages** (or **Show newer messages** when sorted oldest first) loads more, while search covers every message in the selected folder.
 - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
 - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
 - Send & receive manually or periodically while the application is running.

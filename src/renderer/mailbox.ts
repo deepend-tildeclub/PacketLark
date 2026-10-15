@@ -1,5 +1,23 @@
 import type { Message } from '../core/model.js';
 
+export type MessageSort = 'newest' | 'oldest';
+
+export function messageSort(value: string | null): MessageSort {
+  return value === 'oldest' ? 'oldest' : 'newest';
+}
+
+export function sortMessages(messages: Message[], order: MessageSort): Message[] {
+  // Compare instants rather than date strings, which can carry different UTC offsets.
+  return messages
+    .map((message) => ({ message, time: Date.parse(message.date) }))
+    .sort((a, b) => {
+      if (Number.isNaN(a.time)) return Number.isNaN(b.time) ? 0 : 1;
+      if (Number.isNaN(b.time)) return -1;
+      return order === 'oldest' ? a.time - b.time : b.time - a.time;
+    })
+    .map(({ message }) => message);
+}
+
 export function mailboxCounts(messages: Message[]) {
   const folders = new Map<string, number>();
   const unreadAreas = new Map<string, number>();
