@@ -22,9 +22,24 @@ try {
   assert.deepEqual(security, { sandbox: true, nodeIntegration: false, contextIsolation: true });
   const state = await window.evaluate(() => window.packetlark.state());
   assert.equal(state.account, null);
+  const update = await window.evaluate(async () => {
+    const changed = new Promise((resolve) => {
+      const off = window.packetlark.onChanged((value) => {
+        off();
+        resolve(value);
+      });
+    });
+    await window.packetlark.contact('IPC smoke contact', '1:123/456');
+    return { event: await changed, state: await window.packetlark.state() };
+  });
+  assert.ok(update.state.revision > state.revision);
+  assert.equal(update.event.revision, update.state.revision);
+  assert.equal(update.state.contacts[0].name, 'IPC smoke contact');
   assert.equal(await window.evaluate(() => typeof window.require), 'undefined');
   await window.screenshot({ path: 'test-results/desktop-welcome.png' });
-  console.log('Desktop smoke passed: preload IPC, initial mailbox, and renderer isolation.');
+  console.log(
+    'Desktop smoke passed: preload IPC, revision notifications, mailbox refresh, and renderer isolation.',
+  );
 } finally {
   await desktop?.close();
   fs.rmSync(data, { recursive: true, force: true });

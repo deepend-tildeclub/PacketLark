@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Api } from '../core/model.js';
+import type { Api, RuntimeUpdate } from '../core/model.js';
 async function call<T>(name: string, ...args: unknown[]): Promise<T> {
   const result = (await ipcRenderer.invoke(name, ...args)) as {
     ok: boolean;
@@ -25,7 +25,7 @@ const api: Api = {
   requestAreaList: () => call('areaList'),
   backup: () => call('backup'),
   onChanged(cb) {
-    const listener = () => cb();
+    const listener = (_event: Electron.IpcRendererEvent, update?: RuntimeUpdate) => cb(update);
     ipcRenderer.on('changed', listener);
     return () => ipcRenderer.removeListener('changed', listener);
   },

@@ -2,7 +2,7 @@ import { test as base, expect, _electron, type Page, type Locator } from '@playw
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Compose, Message, State } from '../../src/core/model.js';
+import type { Compose, Message, RuntimeUpdate, State } from '../../src/core/model.js';
 
 // Exercise the real Electron renderer against a mocked application API, without a downloaded browser.
 // Playwright requires the destructuring signature even when no built-in fixtures are needed.
@@ -43,7 +43,18 @@ const message: Message = {
   error: '',
   packetName: '',
 };
+declare global {
+  interface Window {
+    packetlarkTest: {
+      stateReads(): number;
+      runtime(status: string, syncing?: boolean): void;
+      touch(): void;
+      replaceMessage(message: Message): void;
+    };
+  }
+}
 const state: State = {
+  revision: 0,
   account: {
     name: 'Mike',
     address: '1:123/456.100@fidonet',
@@ -77,7 +88,12 @@ async function click(locator: Locator) {
   if (process.env.RETROPOST_HEADLESS === '1') await locator.dispatchEvent('click');
   else await locator.click();
 }
-async function setup(page: Page, account = true, directory = state.discussions) {
+async function setup(
+  page: Page,
+  account = true,
+  directory = state.discussions,
+  messages = state.messages,
+) {
   await page.addInitScript(
     ({ initial, account }) => {
       const data = structuredClone(initial);
@@ -87,8 +103,30 @@ async function setup(page: Page, account = true, directory = state.discussions) 
         data.areas = [];
       }
       let listSent = false;
-      const changed: (() => void)[] = [];
-      const emit = () => changed.forEach((cb) => cb());
+      let stateReads = 0;
+      const changed: ((update?: RuntimeUpdate) => void)[] = [];
+      const emit = (dataChanged = true) => {
+        if (dataChanged) data.revision = (data.revision || 0) + 1;
+        changed.forEach((cb) =>
+          cb({ revision: data.revision!, syncing: data.syncing, status: data.status }),
+        );
+      };
+      window.packetlarkTest = {
+        stateReads: () => stateReads,
+        runtime: (status, syncing = false) => {
+          data.status = status;
+          data.syncing = syncing;
+          emit(false);
+        },
+        touch: () => {
+          emit();
+        },
+        replaceMessage: (message) => {
+          data.messages = data.messages.filter((m) => m.id !== message.id);
+          data.messages.push(message);
+          emit();
+        },
+      };
       const make = (c: Compose, folder: Message['folder']): Message => ({
         ...data.messages[0],
         ...c,
@@ -106,15 +144,17 @@ async function setup(page: Page, account = true, directory = state.discussions) 
       });
       Object.defineProperty(window, 'packetlark', {
         value: {
-          state: async () =>
-            structuredClone({
+          state: async () => {
+            stateReads++;
+            return structuredClone({
               ...data,
               messages: data.messages.filter((m) => !m.internal),
               discussions: {
                 ...data.discussions,
                 queued: data.messages.filter((m) => m.folder === 'outbox').map((m) => m.id),
               },
-            }),
+            });
+          },
           importAccount: async () => true,
           sync: async () => {
             if (data.discussions.requestId) {
@@ -252,14 +292,14 @@ async function setup(page: Page, account = true, directory = state.discussions) 
             emit();
           },
           backup: async () => {},
-          onChanged: (cb: () => void) => {
+          onChanged: (cb: (update?: RuntimeUpdate) => void) => {
             changed.push(cb);
             return () => {};
           },
         },
       });
     },
-    { initial: { ...state, discussions: directory }, account },
+    { initial: { ...state, discussions: directory, messages }, account },
   );
   await page.goto('http://127.0.0.1:4173/');
 }
@@ -485,4 +525,151 @@ test('keeps management traffic out of Inbox, Outbox, Sent and Trash while subscr
     await expect(page.locator('.message-row').filter({ hasText: 'AreaFix' })).toHaveCount(0);
     await expect(page.locator('.message-row').filter({ hasText: '%LIST' })).toHaveCount(0);
   }
+});
+
+test('status updates preserve the reader, text selection, rows, and scroll without fetching snapshots', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, [
+    { ...message, read: true, body: 'A long conversation.\n'.repeat(150) },
+  ]);
+  await click(page.locator('.message-row').first());
+  const body = await page.locator('.body-text').elementHandle();
+  const row = await page.locator('.message-row').elementHandle();
+  const before = await page.evaluate(() => {
+    const text = document.querySelector('.body-text')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 6);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    document.querySelector('.reader')!.scrollTop = 100;
+    return {
+      reads: window.packetlarkTest.stateReads(),
+      scroll: document.querySelector('.reader')!.scrollTop,
+      selectedText: window.getSelection()!.toString(),
+    };
+  });
+  await page.evaluate(() => {
+    for (let i = 0; i < 50; i++) window.packetlarkTest.runtime(`Transfer ${i}`);
+  });
+  await expect(page.locator('.statusbar')).toContainText('Transfer 49');
+  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
+    true,
+  );
+  expect(await page.locator('.message-row').evaluate((current, old) => current === old, row)).toBe(
+    true,
+  );
+  if (process.env.RETROPOST_HEADLESS !== '1') expect(before.selectedText).toBe('A long');
+  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(before.selectedText);
+  expect(await page.evaluate(() => window.packetlarkTest.stateReads())).toBe(before.reads);
+  expect(await page.locator('.reader').evaluate((node) => node.scrollTop)).toBe(before.scroll);
+  await page.evaluate(() => window.packetlarkTest.runtime('Connecting', true));
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  await page.evaluate(() => window.packetlarkTest.runtime('Ready', false));
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+});
+
+test('flag changes update controls while retaining the selected body and row', async ({ page }) => {
+  await setup(page);
+  await click(page.locator('.message-row').first());
+  const body = await page.locator('.body-text').elementHandle();
+  const row = await page.locator('.message-row').elementHandle();
+  await click(page.getByRole('button', { name: '☆ Star', exact: true }));
+  await expect(page.getByRole('button', { name: '★ Starred', exact: true })).toBeVisible();
+  await click(page.getByRole('button', { name: '★ Starred', exact: true }));
+  await expect(page.getByRole('button', { name: '☆ Star', exact: true })).toBeVisible();
+  await click(page.getByRole('button', { name: 'Mark unread', exact: true }));
+  await expect(page.getByRole('button', { name: 'Mark read', exact: true })).toBeVisible();
+  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
+    true,
+  );
+  expect(await page.locator('.message-row').evaluate((current, old) => current === old, row)).toBe(
+    true,
+  );
+});
+
+test('bounds a large mailbox and searches messages beyond the initial displayed rows', async ({
+  page,
+}) => {
+  await setup(
+    page,
+    true,
+    state.discussions,
+    Array.from({ length: 1200 }, (_, i) => ({
+      ...message,
+      id: `large-${i}`,
+      msgid: `large ${i}`,
+      subject: `Unique conversation ${i}`,
+      read: true,
+      date: new Date(Date.UTC(2026, 9, 14, 18, 0, 0) - i * 1000).toISOString(),
+    })),
+  );
+  await expect(page.locator('.message-row')).toHaveCount(200);
+  const first = await page.locator('.message-row').first().elementHandle();
+  await click(page.getByRole('button', { name: 'Show older messages', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(400);
+  expect(
+    await page
+      .locator('.message-row')
+      .first()
+      .evaluate((current, old) => current === old, first),
+  ).toBe(true);
+  await page
+    .getByRole('searchbox', { name: 'Search messages', exact: true })
+    .fill('Unique conversation 1199');
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await expect(page.locator('.message-row')).toContainText('Unique conversation 1199');
+  await page.getByRole('searchbox', { name: 'Search messages', exact: true }).fill('');
+  await expect(page.locator('.message-row')).toHaveCount(200);
+});
+
+test('coalesces data notifications and still refreshes changed message contents', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, [{ ...message, read: true }]);
+  await click(page.locator('.message-row').first());
+  const reads = await page.evaluate(() => window.packetlarkTest.stateReads());
+  await page.evaluate(() => {
+    for (let i = 0; i < 100; i++) window.packetlarkTest.touch();
+  });
+  await expect.poll(() => page.evaluate(() => window.packetlarkTest.stateReads())).toBe(reads + 1);
+  await page.evaluate(
+    (m) =>
+      window.packetlarkTest.replaceMessage({ ...m, read: true, body: 'Changed content arrived.' }),
+    message,
+  );
+  await expect(page.locator('.body-text')).toHaveText('Changed content arrived.');
+});
+
+test('inserts newly received mail without remounting existing rows or the selected conversation', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, [{ ...message, read: true }]);
+  await click(page.locator('.message-row'));
+  const row = await page.locator('.message-row').elementHandle();
+  const body = await page.locator('.body-text').elementHandle();
+  await page.evaluate(
+    (m) =>
+      window.packetlarkTest.replaceMessage({
+        ...m,
+        id: 'new-arrival',
+        msgid: 'new arrival',
+        subject: 'A newly arrived message',
+        date: '2026-10-15T00:00:00Z',
+      }),
+    message,
+  );
+  await expect(page.locator('.message-row')).toHaveCount(2);
+  await expect(page.locator('.message-row').first()).toContainText('A newly arrived message');
+  expect(
+    await page
+      .locator('.message-row')
+      .nth(1)
+      .evaluate((current, old) => current === old, row),
+  ).toBe(true);
+  expect(await page.locator('.body-text').evaluate((current, old) => current === old, body)).toBe(
+    true,
+  );
+  await expect(page.getByRole('button', { name: /^Inbox/ }).locator('.count')).toHaveText('1');
 });

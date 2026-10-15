@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { Store, atomicWrite } from '../core/store.js';
-import { composeSchema, draftSchema, profileSchema } from '../core/model.js';
+import { composeSchema, draftSchema, profileSchema, type State } from '../core/model.js';
 import { exchange } from '../core/binkp.js';
 import { unpackMail } from '../core/packet.js';
 
@@ -40,7 +40,7 @@ const secureStorage = () =>
   safeStorage.isEncryptionAvailable() &&
   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 function emit() {
-  win?.webContents.send('changed');
+  win?.webContents.send('changed', { revision: store.revision, syncing, status });
 }
 function safeError(error: unknown): string {
   // Remote errors may reflect credentials. Redact every configured secret before displaying.
@@ -149,12 +149,18 @@ function register() {
         return { ok: false, error: safeError(error) };
       }
     });
-  handle('state', () => ({
-    ...store.state(),
-    syncing,
-    status: status || store.state().status,
-    storageWarning: !secureStorage(),
-  }));
+  let snapshot: State | undefined;
+  handle('state', () => {
+    // Connection progress doesn't change the mailbox. Avoid repeated SQL scans,
+    // JSON decoding and OS credential decryption for the same durable revision.
+    if (snapshot?.revision !== store.revision) snapshot = store.state();
+    return {
+      ...snapshot,
+      syncing,
+      status: status || snapshot.status,
+      storageWarning: !secureStorage(),
+    };
+  });
   handle('import', async () => {
     const result = await dialog.showOpenDialog(win!, {
       title: 'Import your PacketLark account',

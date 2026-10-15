@@ -43,6 +43,10 @@ export function atomicWrite(destination: string, bytes: Uint8Array): void {
   }
 }
 export class Store {
+  private currentRevision = 0;
+  get revision(): number {
+    return this.currentRevision;
+  }
   private constructor(
     private db: Database,
     private sql: SqlJsStatic,
@@ -96,6 +100,7 @@ export class Store {
       fn();
       this.db.exec('COMMIT');
       atomicWrite(this.file, this.db.export());
+      this.currentRevision++;
     } catch (error) {
       this.db.close();
       this.db = new this.sql.Database(previous);
@@ -120,6 +125,11 @@ export class Store {
     return this.rows('SELECT data FROM messages').map(
       (r) => JSON.parse(r.data as string) as Message,
     );
+  }
+  private findMessage(id: string | null | undefined): Message | undefined {
+    if (!id) return undefined;
+    const row = this.rows('SELECT data FROM messages WHERE id=?', [id])[0];
+    return row ? (JSON.parse(row.data as string) as Message) : undefined;
   }
   private put(message: Message): void {
     this.db.run('INSERT OR REPLACE INTO messages VALUES (?,?)', [
@@ -158,6 +168,7 @@ export class Store {
   state(): State {
     const p = this.profile();
     return {
+      revision: this.revision,
       account: p
         ? {
             name: p.name,
@@ -187,7 +198,7 @@ export class Store {
     const p = this.profile();
     if (!p) throw new Error('Import an account first.');
     const c = draftSchema.parse(value);
-    const old = c.id ? this.messages().find((m) => m.id === c.id) : undefined;
+    const old = c.id ? this.findMessage(c.id) : undefined;
     if (c.id && (!old || old.folder !== 'drafts')) throw new Error('This draft no longer exists.');
     const message = draftMessage(p, c, c.id);
     if (old) message.msgid = old.msgid;
@@ -205,7 +216,7 @@ export class Store {
     const p = this.profile();
     if (!p) throw new Error('Import an account first.');
     const c = composeSchema.parse(value);
-    const old = c.id ? this.messages().find((m) => m.id === c.id) : undefined;
+    const old = c.id ? this.findMessage(c.id) : undefined;
     if (c.id && (!old || old.folder !== 'drafts'))
       throw new Error('This draft was already queued or removed.');
     const message = draftMessage(p, c, c.id);
@@ -251,7 +262,7 @@ export class Store {
   requestAreaList(): void {
     const p = this.managementProfile();
     const directory = this.discussions();
-    if (this.messages().some((m) => m.id === directory.requestId && m.folder === 'outbox'))
+    if (this.findMessage(directory.requestId)?.folder === 'outbox')
       throw new Error('An area-list request is already queued. Send & receive to deliver it.');
     this.mutate(() => {
       // Separate positive lists let us merge split messages without treating a missing part
@@ -277,7 +288,7 @@ export class Store {
     tag = managementTag(tag);
     const directory = this.discussions();
     const entry = this.discussion(directory, tag);
-    if (this.messages().some((m) => m.id === entry.pending?.messageId && m.folder === 'outbox'))
+    if (this.findMessage(entry.pending?.messageId)?.folder === 'outbox')
       throw new Error(
         'A request for this discussion is already queued. Send & receive to deliver it.',
       );
@@ -303,7 +314,7 @@ export class Store {
     const receivedAt = new Date().toISOString();
     const replyTime = Number.isFinite(Date.parse(message.date)) ? message.date : receivedAt;
     const canResolve = (pending: Discussion['pending']) => {
-      const request = pending && this.messages().find((m) => m.id === pending.messageId);
+      const request = pending && this.findMessage(pending.messageId);
       // SBBSecho doesn't include a request ID in replies. Avoid resolving a new request
       // from an older delayed reply; FTN dates have one-second precision.
       return (
@@ -370,7 +381,7 @@ export class Store {
   sent(name: string): void {
     const row = this.rows('SELECT message_id FROM outgoing WHERE name=?', [name])[0];
     if (!row) throw new Error('Outgoing message is no longer queued.');
-    const message = this.messages().find((m) => m.id === row.message_id);
+    const message = this.findMessage(row.message_id as string);
     if (!message) throw new Error('Outgoing message record is missing.');
     message.folder = 'sent';
     message.error = '';
@@ -417,18 +428,23 @@ export class Store {
     return count;
   }
   mark(id: string, patch: { read?: boolean; starred?: boolean }): void {
-    const m = this.messages().find((m) => m.id === id);
+    const m = this.findMessage(id);
     if (!m) throw new Error('Message not found.');
+    if (
+      (patch.read === undefined || patch.read === m.read) &&
+      (patch.starred === undefined || patch.starred === m.starred)
+    )
+      return;
     this.mutate(() => this.put({ ...m, ...patch }));
   }
   removeDraft(id: string): void {
-    if (this.messages().find((m) => m.id === id)?.folder !== 'drafts')
+    if (this.findMessage(id)?.folder !== 'drafts')
       throw new Error('Only drafts can be removed in version 1.');
     this.mutate(() => this.db.run('DELETE FROM messages WHERE id=?', [id]));
   }
   private visibleMessage(id: string): Message {
-    const message = this.messages().find((m) => m.id === id && !m.internal);
-    if (!message) throw new Error('Message not found.');
+    const message = this.findMessage(id);
+    if (!message || message.internal) throw new Error('Message not found.');
     return message;
   }
   trashMessage(id: string): void {

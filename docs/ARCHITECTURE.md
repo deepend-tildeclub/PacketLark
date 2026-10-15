@@ -8,6 +8,25 @@ The renderer never receives session credentials or the packet password. Automati
 
 The SQL.js SQLite database is operated synchronously by one main process. Changes are committed and exported to a private temporary file, fsynced, and renamed into place before success is reported. Unix directory entries are fsynced. On write failure the in-memory database is restored to its previous snapshot. Windows and Linux filesystem/power-loss guarantees still depend on the OS and storage. Snapshots are practical for this initial small-mailbox implementation; large mailboxes should move to a native incremental SQLite backend later without changing the IPC contract.
 
+## Interface updates
+
+Durable mutations increment an in-memory revision only after the atomic save
+succeeds. The main process caches the public mailbox snapshot for that revision.
+Connection progress sends a small revision/status event, so it does not rescan
+SQLite, decrypt the profile, or copy the entire mailbox across IPC on every update.
+New data invalidates the snapshot; notifications arriving together are coalesced
+before fetching a new copy. Repeatedly setting an unchanged read/starred flag
+does not rewrite the database. Individual message operations use primary-key
+lookups instead of parsing every stored message.
+
+The renderer counts sidebar badges in one pass, reuses one date formatter,
+retains keyed message buttons, and preserves the reader body on flag-only changes.
+Unchanged panels and status text are left in place, retaining scroll and focus.
+Folders initially render 200 rows and expose more in batches of 200; local search
+still covers the complete selected folder. These changes preserve synchronous
+durable commits and the existing network acknowledgement rules. GPU acceleration
+and platform graphics backend selection are unchanged.
+
 ## Sending
 
 Composing uses a draft record, debounced while typing. Queuing validates fields and encoded byte lengths, builds one raw Type-2+ packet, and persists its exact bytes, filename, timestamp, and message identity. Retrying uses the same bytes and MSGID. A draft cannot be queued twice using its existing ID.
@@ -38,7 +57,7 @@ Credentials are stored in an OS-encrypted JSON blob. Linux `basic_text` fallback
 
 - A single point account per mailbox; no in-app replacement/removal or multi-device state synchronization.
 - Desktop application must be running for scheduled polling; no notification tray/background service yet.
-- Search, list generation, and SQLite snapshot costs grow with mailbox size; no pagination or retention policy yet.
+- Search, list generation, and SQLite snapshot costs grow with mailbox size; rendered message rows are batched, but automatic retention is not implemented.
 - Basic threading uses explicit parent references. Missing/malformed legacy headers are not guessed by subject.
 - Discussion requests are asynchronous netmail commands; the interface does not parse every provider-specific AreaFix response format or maintain authoritative membership state.
 - Unsupported incoming mail stays on the provider and needs sysop attention. Local display cannot retract or edit network posts.

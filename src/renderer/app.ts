@@ -1,5 +1,6 @@
-import type { Api, Compose, Discussion, Message, State } from '../core/model.js';
+import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
 import './style.css';
+import { mailboxCounts, reconcileChildren } from './mailbox.js';
 declare global {
   interface Window {
     packetlark: Api;
@@ -14,6 +15,15 @@ let state: State,
 let composer: HTMLDialogElement | null = null,
   refreshing = false,
   refreshAgain = false;
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let sidebarKey = '',
+  headingKey = '',
+  readerKey = '',
+  readerSelection = '',
+  listViewKey = '';
+let rowLimit = 200;
+const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
+let moreMessages: HTMLButtonElement | undefined;
 let renderDiscussions: (() => void) | null = null;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 function e<K extends keyof HTMLElementTagNameMap>(
@@ -48,17 +58,20 @@ async function action(fn: () => Promise<unknown>) {
     notify(error instanceof Error ? error.message : 'The operation failed.', true);
   }
 }
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
 function date(value: string) {
   const d = new Date(value);
-  return Number.isNaN(d.getTime())
-    ? value
-    : d.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      });
+  return Number.isNaN(d.getTime()) ? value : dateFormatter.format(d);
 }
+function setText(node: HTMLElement, value: string) {
+  if (node.textContent !== value) node.textContent = value;
+}
+
 const toolbar = e('header', 'toolbar');
 const brand = e('div', 'brand');
 brand.append(e('div', 'brand-mark', 'P'), e('div', '', 'PacketLark'));
@@ -92,8 +105,15 @@ listPanel.append(listHeading, messageList);
 workspace.append(sidebar, listPanel, reader);
 const footer = e('footer', 'statusbar');
 footer.setAttribute('role', 'status');
+const footerStatus = e('span'),
+  footerTime = e('span');
+footer.append(footerStatus, footerTime);
 app.append(toolbar, workspace, footer);
 async function refresh() {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = undefined;
+  }
   if (refreshing) {
     refreshAgain = true;
     return;
@@ -109,20 +129,42 @@ async function refresh() {
     refreshing = false;
   }
 }
-function render() {
+function renderRuntime() {
   composeButton.disabled = !state.account;
   syncButton.disabled = !state.account || state.syncing;
-  syncButton.textContent = state.syncing ? '↻ Connecting…' : '↻ Send & receive';
-  footer.replaceChildren(
-    e('span', state.syncing ? 'working' : '', `${state.syncing ? '● ' : '● '}${state.status}`),
-    e(
-      'span',
-      '',
-      state.lastSync
-        ? `Last exchange: ${date(state.lastSync)}`
-        : 'Offline reading · FidoNet messaging',
-    ),
+  setText(syncButton, state.syncing ? '↻ Connecting…' : '↻ Send & receive');
+  footerStatus.className = state.syncing ? 'working' : '';
+  setText(footerStatus, `● ${state.status}`);
+  setText(
+    footerTime,
+    state.lastSync
+      ? `Last exchange: ${date(state.lastSync)}`
+      : 'Offline reading · FidoNet messaging',
   );
+  for (const control of reader.querySelectorAll<HTMLButtonElement>('[data-mailbox-change]'))
+    control.disabled = state.syncing;
+}
+function render() {
+  renderRuntime();
+  renderSidebar();
+  renderMailbox();
+  renderDiscussions?.();
+}
+function renderSidebar() {
+  const counts = mailboxCounts(state.messages);
+  const key = JSON.stringify([
+    folder,
+    state.account?.provider,
+    !!state.account,
+    state.areas,
+    ['inbox', 'sent', 'drafts', 'outbox', 'starred', 'trash'].map(
+      (id) => counts.folders.get(id) || 0,
+    ),
+    state.areas.map((a) => counts.unreadAreas.get(a.tag) || 0),
+  ]);
+  if (key === sidebarKey) return;
+  sidebarKey = key;
+  const scroll = sidebar.scrollTop;
   sidebar.replaceChildren();
   const label = e('div', 'section-label', state.account?.provider || 'RETRODIGITAL BBS');
   sidebar.append(label);
@@ -136,13 +178,7 @@ function render() {
     ['contacts', 'Contacts'],
   ];
   for (const [id, title] of folders) {
-    const count = state.messages.filter((m) =>
-      id === 'starred'
-        ? m.starred && m.folder !== 'trash'
-        : id === 'inbox'
-          ? m.folder === 'inbox' && !m.area && !m.read
-          : m.folder === id,
-    ).length;
+    const count = counts.folders.get(id) || 0;
     const b = button(
       title,
       () => {
@@ -151,7 +187,6 @@ function render() {
         selection = '';
         query = '';
         search.value = '';
-        renderMailbox();
         render();
       },
       folder === id ? 'nav-item active' : 'nav-item',
@@ -162,9 +197,7 @@ function render() {
   const discussionHeader = e('div', 'section-label section-spaced', 'DISCUSSIONS');
   sidebar.append(discussionHeader);
   for (const area of state.areas) {
-    const count = state.messages.filter(
-      (m) => m.area === area.tag && m.folder === 'inbox' && !m.read,
-    ).length;
+    const count = counts.unreadAreas.get(area.tag) || 0;
     const b = button(
       area.name,
       () => {
@@ -183,15 +216,14 @@ function render() {
   sidebar.append(
     e('div', 'sidebar-note', 'Independent conversations.\nDelivered through FidoNet.'),
   );
-  renderMailbox();
-  renderDiscussions?.();
+  sidebar.scrollTop = scroll;
 }
 function renderMailbox() {
   if (!state) return;
-  listHeading.replaceChildren();
-  messageList.replaceChildren();
-  reader.replaceChildren();
   if (!state.account) {
+    listHeading.replaceChildren();
+    messageList.replaceChildren();
+    reader.replaceChildren();
     listHeading.append(e('h1', '', 'Your mailbox'));
     messageList.append(
       e('p', 'empty-copy', 'Your direct messages and discussions will appear here.'),
@@ -217,6 +249,12 @@ function renderMailbox() {
     return;
   }
   if (folder === 'contacts') {
+    headingKey = '';
+    readerKey = '';
+    rowCache.clear();
+    listHeading.replaceChildren();
+    messageList.replaceChildren();
+    reader.replaceChildren();
     listHeading.append(
       e('h1', '', 'Contacts'),
       button('Add contact', () => contactDialog(), 'small'),
@@ -237,17 +275,29 @@ function renderMailbox() {
   const title = area
     ? state.areas.find((a) => a.tag === area)?.name || area
     : folder[0].toUpperCase() + folder.slice(1);
-  listHeading.append(e('h1', '', title));
-  const filter = button(
-    unreadOnly ? 'Unread only ✓' : 'Unread only',
-    () => {
-      unreadOnly = !unreadOnly;
-      renderMailbox();
-    },
-    'small',
-  );
-  filter.setAttribute('aria-pressed', String(unreadOnly));
-  listHeading.append(filter);
+  const viewKey = JSON.stringify([folder, query, unreadOnly]);
+  const changedView = viewKey !== listViewKey;
+  if (changedView) {
+    rowLimit = 200;
+    listViewKey = viewKey;
+  }
+  const nextHeading = JSON.stringify([title, unreadOnly]);
+  if (headingKey !== nextHeading) {
+    headingKey = nextHeading;
+    listHeading.replaceChildren();
+    listHeading.append(e('h1', '', title));
+    const filter = button(
+      unreadOnly ? 'Unread only ✓' : 'Unread only',
+      () => {
+        unreadOnly = !unreadOnly;
+        renderMailbox();
+      },
+      'small',
+    );
+    filter.setAttribute('aria-pressed', String(unreadOnly));
+    listHeading.append(filter);
+  }
+  const term = query.toLowerCase();
   const messages = state.messages
     .filter((m) => {
       const match = area
@@ -260,13 +310,13 @@ function renderMailbox() {
       return (
         match &&
         (!unreadOnly || !m.read) &&
-        (!query ||
-          `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(query.toLowerCase()))
+        (!term || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(term))
       );
     })
     .sort((a, b) => b.date.localeCompare(a.date));
+  const children: Node[] = [];
   if (!messages.length)
-    messageList.append(
+    children.push(
       e(
         'div',
         'empty-list',
@@ -277,44 +327,103 @@ function renderMailbox() {
             : 'Nothing here yet.',
       ),
     );
-  for (const m of messages) {
-    const b = button(
-      '',
-      () => {
-        selection = m.id;
-        if (m.folder === 'drafts') openCompose({ ...m, replyId: m.replyId });
-        else void action(() => api.mark(m.id, { read: true }));
+  const visible = messages.slice(0, rowLimit);
+  const visibleIds = new Set(visible.map((m) => m.id));
+  for (const id of rowCache.keys()) if (!visibleIds.has(id)) rowCache.delete(id);
+  for (const m of visible) {
+    const key = JSON.stringify([
+      m.from,
+      m.to,
+      m.folder,
+      m.trash?.folder,
+      m.subject,
+      m.starred,
+      m.body.slice(0, 140),
+      m.date,
+      !!m.error,
+    ]);
+    let cached = rowCache.get(m.id);
+    if (!cached) {
+      const node = button('', () => {
+        const live = state.messages.find((value) => value.id === m.id);
+        if (!live) return;
+        selection = live.id;
+        if (live.folder === 'drafts') openCompose({ ...live, replyId: live.replyId });
+        else if (!live.read) void action(() => api.mark(live.id, { read: true }));
         renderMailbox();
-      },
-      `message-row ${selection === m.id ? 'selected ' : ''}${!m.read ? 'unread' : ''}`,
-    );
-    const top = e('div', 'row-top');
-    top.append(
-      e(
-        'span',
-        'sender',
-        (m.folder === 'trash' ? m.trash?.folder : m.folder) === 'inbox' ? m.from : `To: ${m.to}`,
-      ),
-      e('time', '', date(m.date)),
-    );
-    b.append(
-      top,
-      e('div', 'subject', `${m.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
-      e('p', 'preview', m.body.replace(/\n/g, ' ').slice(0, 140)),
-    );
-    if (m.folder === 'outbox')
-      b.append(
+      });
+      cached = { key: '', node };
+      rowCache.set(m.id, cached);
+    }
+    const b = cached.node;
+    const cls = `message-row ${selection === m.id ? 'selected ' : ''}${!m.read ? 'unread' : ''}`;
+    if (b.className !== cls) b.className = cls;
+    if (cached.key !== key) {
+      cached.key = key;
+      const top = e('div', 'row-top');
+      top.append(
         e(
           'span',
-          m.error ? 'delivery failed' : 'delivery',
-          m.error ? 'Needs retry' : 'Queued for next exchange',
+          'sender',
+          (m.folder === 'trash' ? m.trash?.folder : m.folder) === 'inbox' ? m.from : `To: ${m.to}`,
         ),
+        e('time', '', date(m.date)),
       );
-    messageList.append(b);
+      b.replaceChildren(
+        top,
+        e('div', 'subject', `${m.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
+        e('p', 'preview', m.body.slice(0, 140).replace(/\n/g, ' ')),
+      );
+      if (m.folder === 'outbox')
+        b.append(
+          e(
+            'span',
+            m.error ? 'delivery failed' : 'delivery',
+            m.error ? 'Needs retry' : 'Queued for next exchange',
+          ),
+        );
+    }
+    children.push(b);
   }
+  if (messages.length > rowLimit) {
+    moreMessages ??= button(
+      'Show older messages',
+      () => {
+        rowLimit += 200;
+        renderMailbox();
+      },
+      'load-more',
+    );
+    children.push(moreMessages);
+  }
+  reconcileChildren(messageList, children);
+  if (changedView) messageList.scrollTop = 0;
   const selected = messages.find((m) => m.id === selection);
-  if (selected) renderMessage(selected);
-  else {
+  if (selected) {
+    const { thread, responses } = conversation(selected);
+    const key = JSON.stringify([
+      { ...selected, read: undefined, starred: undefined },
+      thread.map((m) => [m.id, m.from, m.body, m.date]),
+      responses.map((m) => [m.id, m.from, m.subject]),
+    ]);
+    if (readerKey !== key) {
+      const scroll = readerSelection === selected.id ? reader.scrollTop : 0;
+      readerSelection = selected.id;
+      readerKey = key;
+      reader.replaceChildren();
+      renderMessage(selected, thread, responses);
+      reader.scrollTop = scroll;
+    }
+    const star = reader.querySelector<HTMLButtonElement>('[data-message-flag="star"]');
+    const read = reader.querySelector<HTMLButtonElement>('[data-message-flag="read"]');
+    if (star) setText(star, selected.starred ? '★ Starred' : '☆ Star');
+    if (read) setText(read, selected.read ? 'Mark unread' : 'Mark read');
+    renderRuntime();
+  } else {
+    if (readerKey === 'empty') return;
+    readerKey = 'empty';
+    readerSelection = '';
+    reader.replaceChildren();
     const empty = e('div', 'empty-reader');
     empty.append(
       e('div', 'letter-icon', '✉'),
@@ -324,7 +433,34 @@ function renderMailbox() {
     reader.append(empty);
   }
 }
-function renderMessage(m: Message) {
+function conversation(m: Message) {
+  // Thread only on explicit FTN MSGID/REPLY links within the same area. Never merge by subject.
+  const thread: Message[] = [];
+  const seen = new Set<string>();
+  let current: Message | undefined = m;
+  while (current && !seen.has(current.id) && thread.length < 50) {
+    thread.unshift(current);
+    seen.add(current.id);
+    const previous: string = current.replyId;
+    current =
+      previous && m.folder !== 'trash'
+        ? state.messages.find(
+            (x) => x.msgid === previous && x.area === m.area && x.folder !== 'trash',
+          )
+        : undefined;
+  }
+  const responses = state.messages.filter(
+    (x) =>
+      m.folder !== 'trash' &&
+      x.folder !== 'trash' &&
+      m.msgid &&
+      x.replyId === m.msgid &&
+      x.area === m.area &&
+      !seen.has(x.id),
+  );
+  return { thread, responses };
+}
+function renderMessage(m: Message, thread: Message[], responses: Message[]) {
   const head = e('div', 'reader-heading');
   head.append(
     e(
@@ -364,14 +500,20 @@ function renderMessage(m: Message) {
       button(m.area ? 'Reply to discussion' : 'Reply', () => reply(m, false), 'primary'),
       button(
         m.starred ? '★ Starred' : '☆ Star',
-        () => void action(() => api.mark(m.id, { starred: !m.starred })),
+        () =>
+          void action(() =>
+            api.mark(m.id, { starred: !state.messages.find((x) => x.id === m.id)!.starred }),
+          ),
       ),
     );
     if (m.area) actions.append(button('Reply privately', () => reply(m, true)));
     actions.append(
       button(
         m.read ? 'Mark unread' : 'Mark read',
-        () => void action(() => api.mark(m.id, { read: !m.read })),
+        () =>
+          void action(() =>
+            api.mark(m.id, { read: !state.messages.find((x) => x.id === m.id)!.read }),
+          ),
       ),
       button('Save contact', () => contactDialog(m.from, m.fromAddress)),
       button('Details', () => details(m)),
@@ -395,12 +537,18 @@ function renderMessage(m: Message) {
       ),
     );
   for (const control of actions.querySelectorAll('button')) {
+    if (['★ Starred', '☆ Star'].includes(control.textContent || ''))
+      control.dataset.messageFlag = 'star';
+    if (['Mark unread', 'Mark read'].includes(control.textContent || ''))
+      control.dataset.messageFlag = 'read';
     if (
       ['Delete', 'Delete draft', 'Delete permanently', 'Restore'].includes(
         control.textContent || '',
       )
-    )
+    ) {
+      control.dataset.mailboxChange = '';
       control.disabled = state.syncing;
+    }
   }
   head.append(actions);
   reader.append(head);
@@ -423,21 +571,6 @@ function renderMessage(m: Message) {
       ),
     );
   if (m.error) reader.append(e('div', 'notice warning', m.error));
-  // Thread only on explicit FTN MSGID/REPLY links within the same area. Never merge by subject.
-  const thread: Message[] = [];
-  const seen = new Set<string>();
-  let current: Message | undefined = m;
-  while (current && !seen.has(current.id) && thread.length < 50) {
-    thread.unshift(current);
-    seen.add(current.id);
-    const previous: string = current.replyId;
-    current =
-      previous && m.folder !== 'trash'
-        ? state.messages.find(
-            (x) => x.msgid === previous && x.area === m.area && x.folder !== 'trash',
-          )
-        : undefined;
-  }
   for (const part of thread) {
     const article = e('article', 'message-body');
     if (thread.length > 1)
@@ -446,15 +579,6 @@ function renderMessage(m: Message) {
     article.append(text);
     reader.append(article);
   }
-  const responses = state.messages.filter(
-    (x) =>
-      m.folder !== 'trash' &&
-      x.folder !== 'trash' &&
-      m.msgid &&
-      x.replyId === m.msgid &&
-      x.area === m.area &&
-      !seen.has(x.id),
-  );
   if (responses.length) {
     const box = e('div', 'thread-links');
     box.append(e('h2', '', 'Replies'));
@@ -1005,8 +1129,19 @@ document.addEventListener('keydown', (event) => {
   }
 });
 if (api) {
-  api.onChanged(() => {
-    void refresh().catch((e) => notify(String(e), true));
+  api.onChanged((update?: RuntimeUpdate) => {
+    if (state && update && state.revision !== undefined && update.revision < state.revision) return;
+    if (state && update && !refreshing && state.revision === update.revision) {
+      const changedSync = state.syncing !== update.syncing;
+      state = { ...state, syncing: update.syncing, status: update.status || state.status };
+      renderRuntime();
+      if (changedSync) renderDiscussions?.();
+      return;
+    }
+    refreshTimer ??= setTimeout(() => {
+      refreshTimer = undefined;
+      void refresh().catch((e) => notify(String(e), true));
+    }, 16);
   });
   void refresh().catch((e) => notify(String(e), true));
 } else {

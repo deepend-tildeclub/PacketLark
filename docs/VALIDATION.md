@@ -63,3 +63,37 @@ The unchanged Windows/Linux workflow runs the additional tests before packaging.
 Native display/input checks and live BBS acceptance were not run locally. No
 dependencies, provisioning settings, keyring identities, or transport options
 change in this patch.
+
+## Interface performance patch
+
+Based on PacketLark `main` commit `ffc60d8`. Compilation, lint/format checks,
+70 core tests, 19 Electron renderer tests in headless DOM mode, and 10 Python
+provisioning tests pass. The production IPC smoke verifies revision-bearing
+notifications, snapshot refresh after a mutation, and retained sandbox/isolation.
+The existing native Windows/Linux Actions run these checks before packaging.
+
+The changes eliminate full-mailbox fetches for status-only updates, coalesce
+data invalidations, cache public snapshots per durable revision, count sidebar
+badges in one pass, reuse message-row elements and selected reader content,
+cache the date formatter, and initially render at most 200 folder rows. Search
+still covers all messages in the folder. Individual message operations now query
+the primary key; setting already-current flags does not flush SQLite again.
+
+A local synthetic run used 5,000 messages across 100 discussion areas, including
+2,500 direct messages, in Electron's headless test host with GPU disabled:
+
+| Metric                                                       | Baseline | Patched |
+| ------------------------------------------------------------ | -------: | ------: |
+| Navigation to first displayed row                            |   484 ms |  187 ms |
+| Full mailbox fetches for six status updates                  |        6 |       0 |
+| List/reader child-list mutations during those updates        |   15,024 |       0 |
+| Initially rendered direct-message rows                       |    2,500 |     200 |
+| Six-update elapsed time, including 180 ms deliberate waiting | 2,752 ms |  182 ms |
+
+Timing is illustrative for that local run, not a Windows frame-rate claim. The
+regression tests assert stable nodes/scroll, data freshness, batching, and complete
+search rather than machine-dependent timing thresholds. Native text-selection
+verification runs in the regular GUI tests; the restricted offscreen host cannot
+create a normal selection. Actual Windows GPU/compositor smoothness must be
+verified on the affected desktop. Hardware acceleration, Linux Wayland handling,
+mailbox durability, credentials, protocol transport, and dependencies are unchanged.

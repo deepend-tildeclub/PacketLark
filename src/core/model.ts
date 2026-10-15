@@ -178,6 +178,7 @@ export type DiscussionDirectory = {
   error: string;
 };
 export type State = {
+  revision?: number;
   account: PublicAccount | null;
   messages: Message[];
   areas: { tag: string; name: string }[];
@@ -188,6 +189,7 @@ export type State = {
   lastSync: string | null;
   storageWarning: boolean;
 };
+export type RuntimeUpdate = { revision: number; syncing: boolean; status: string };
 export type Api = {
   state(): Promise<State>;
   importAccount(): Promise<boolean>;
@@ -203,5 +205,5 @@ export type Api = {
   areaCommand(tag: string, subscribe: boolean): Promise<void>;
   requestAreaList(): Promise<void>;
   backup(): Promise<void>;
-  onChanged(cb: () => void): () => void;
+  onChanged(cb: (update?: RuntimeUpdate) => void): () => void;
 };
