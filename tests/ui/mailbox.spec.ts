@@ -791,3 +791,139 @@ test('keeps sorting usable when preference storage is unavailable', async ({ pag
   await page.reload();
   await expect(sort).toHaveValue('newest');
 });
+
+test('orders messages inside a discussion conversation and its replies using the remembered preference', async ({
+  page,
+}) => {
+  const root = {
+    ...message,
+    id: 'root',
+    msgid: 'thread root',
+    replyId: '',
+    area: 'TEST',
+    read: true,
+    from: 'Root author',
+    subject: 'Thread root',
+    body: 'Root body',
+    date: '2026-10-14T17:00:00Z',
+  };
+  const parent = {
+    ...root,
+    id: 'parent',
+    msgid: 'thread parent',
+    replyId: root.msgid,
+    from: 'Parent author',
+    subject: 'Thread parent',
+    body: 'Parent body',
+    date: '2026-10-14T18:00:00Z',
+  };
+  const selected = {
+    ...root,
+    id: 'selected',
+    msgid: 'thread selected',
+    replyId: parent.msgid,
+    from: 'Selected author',
+    subject: 'Thread selected',
+    body: 'Selected body',
+    date: '2026-10-14T19:00:00Z',
+  };
+  const olderReply = {
+    ...root,
+    id: 'older-reply',
+    msgid: 'thread older reply',
+    replyId: selected.msgid,
+    from: 'Earlier responder',
+    subject: 'Earlier reply',
+    body: 'Earlier reply body',
+    date: '2026-10-15T00:00:00+03:00',
+  };
+  const newerReply = {
+    ...root,
+    id: 'newer-reply',
+    msgid: 'thread newer reply',
+    replyId: selected.msgid,
+    from: 'Later responder',
+    subject: 'Later reply',
+    body: 'Later reply body',
+    date: '2026-10-14T22:00:00Z',
+  };
+  await setup(page, true, state.discussions, [
+    olderReply,
+    parent,
+    selected,
+    root,
+    newerReply,
+    { ...newerReply, id: 'other-area', area: 'OTHER', body: 'Other area body' },
+    { ...newerReply, id: 'trashed-reply', folder: 'trash', body: 'Trashed body' },
+    {
+      ...root,
+      id: 'unrelated',
+      msgid: 'unrelated',
+      subject: selected.subject,
+      body: 'Unrelated body',
+    },
+  ]);
+  await click(page.getByRole('button', { name: 'Test discussion', exact: true }));
+  await click(page.locator('.message-row').filter({ hasText: 'Selected author' }));
+  const bodies = page.locator('.reader .body-text');
+  const replies = page.locator('.thread-links button');
+  const sort = page.getByRole('combobox', { name: 'Sort messages', exact: true });
+  await expect(bodies).toHaveText(['Selected body', 'Parent body', 'Root body']);
+  await expect(replies).toHaveText([
+    'Later responder — Later reply',
+    'Earlier responder — Earlier reply',
+  ]);
+  await sort.selectOption('oldest');
+  await expect(bodies).toHaveText(['Root body', 'Parent body', 'Selected body']);
+  await expect(replies).toHaveText([
+    'Earlier responder — Earlier reply',
+    'Later responder — Later reply',
+  ]);
+  await expect(page.locator('.reader-heading h1')).toHaveText('Thread selected');
+  await click(replies.first());
+  await expect(bodies).toHaveText([
+    'Root body',
+    'Parent body',
+    'Selected body',
+    'Earlier reply body',
+  ]);
+  await expect(page.locator('.reader-heading h1')).toHaveText('Earlier reply');
+  await page.reload();
+  await click(page.getByRole('button', { name: 'Test discussion', exact: true }));
+  await click(page.locator('.message-row').filter({ hasText: 'Selected author' }));
+  await expect(sort).toHaveValue('oldest');
+  await expect(bodies).toHaveText(['Root body', 'Parent body', 'Selected body']);
+  await sort.selectOption('newest');
+  await expect(bodies).toHaveText(['Selected body', 'Parent body', 'Root body']);
+});
+
+test('also sorts direct-message conversation bodies without changing reply actions', async ({
+  page,
+}) => {
+  const root = {
+    ...message,
+    id: 'direct-root',
+    msgid: 'direct root',
+    read: true,
+    body: 'Earlier direct body',
+    date: '2026-10-14T17:00:00Z',
+  };
+  const reply = {
+    ...root,
+    id: 'direct-reply',
+    msgid: 'direct reply',
+    replyId: root.msgid,
+    body: 'Later direct body',
+    date: '2026-10-14T18:00:00Z',
+    subject: 'Direct reply',
+  };
+  await setup(page, true, state.discussions, [root, reply]);
+  await click(page.locator('.message-row').first());
+  await expect(page.locator('.body-text')).toHaveText(['Later direct body', 'Earlier direct body']);
+  await page.getByRole('combobox', { name: 'Sort messages', exact: true }).selectOption('oldest');
+  await expect(page.locator('.body-text')).toHaveText(['Earlier direct body', 'Later direct body']);
+  await click(page.getByRole('button', { name: 'Reply', exact: true }));
+  await expect(
+    page.getByRole('dialog').getByRole('textbox', { name: 'Subject', exact: true }),
+  ).toHaveValue('Re: Direct reply');
+});

@@ -128,6 +128,7 @@ sortMenu.addEventListener('change', () => {
     // Sorting still works for this session if preferences cannot be saved.
   }
   renderMailbox();
+  reader.scrollTop = 0;
 });
 sortLabel.append(sortMenu);
 listPanel.append(listHeading, messageList);
@@ -491,7 +492,10 @@ function conversation(m: Message) {
       x.area === m.area &&
       !seen.has(x.id),
   );
-  return { thread, responses };
+  return {
+    thread: sortMessages(thread, sortOrder),
+    responses: sortMessages(responses, sortOrder),
+  };
 }
 function renderMessage(m: Message, thread: Message[], responses: Message[]) {
   const head = e('div', 'reader-heading');
