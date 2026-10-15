@@ -1,0 +1,19 @@
+{
+  "format": "packetlark-account",
+  "version": 1,
+  "provider": "RetroDigital BBS (example only)",
+  "name": "Example Person",
+  "address": "1:123/456.100@fidonet",
+  "uplink": {
+    "address": "1:123/456@fidonet",
+    "host": "bbs.example.invalid",
+    "port": 24554,
+    "tls": false,
+    "sessionPassword": "EXAMPLE-ONLY-DO-NOT-USE",
+    "packetPassword": "EXAMPLE",
+    "areaFixPassword": "EXAMPLE-ONLY"
+  },
+  "areas": [{ "tag": "TEST", "name": "Test discussion" }],
+  "pollMinutes": 10,
+  "charset": "UTF-8"
+}

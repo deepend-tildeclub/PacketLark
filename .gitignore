@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release/
+test-results/
+playwright-report/
+*.packetlark
+*.retropost
+!examples/*.packetlark
+*.sqlite*
+*.bak
+__pycache__/
+.env

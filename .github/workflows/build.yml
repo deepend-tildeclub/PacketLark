@@ -1,0 +1,117 @@
+name: Build PacketLark
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install Linux desktop and package dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libsecret-1-0
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Audit application dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Report upstream build-tool audit findings
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
+      - name: Check types, lint, formatting, and protocol/mailbox tests
+        run: npm run check
+      - name: Test Synchronet provisioning
+        run: python -m unittest discover -s tools -p "test_*.py" -v
+      - name: Build application
+        run: npm run build
+      - name: Test Linux desktop and message interface
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a npm run test:desktop
+          xvfb-run -a npm run test:ui -- --workers=1
+      - name: Test Windows desktop and message interface
+        if: runner.os == 'Windows'
+        run: |
+          npm run test:desktop
+          npm run test:ui -- --workers=1
+      - name: Create installers and portable packages
+        run: npm run dist
+      - name: Upload Windows packages
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PacketLark-Windows-x64
+          path: |
+            release/*.exe
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Linux packages
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PacketLark-Linux-x64
+          path: |
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostic test artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Test-diagnostics-${{ matrix.os }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  node-26:
+    name: Check Node 26 and npm 12
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+      - name: Use npm 12
+        run: npm install --global npm@12.2.0
+      - name: Install locked dependencies with explicit script policy
+        run: npm ci
+      - name: Check types, lint, formatting, and protocol/mailbox tests
+        run: npm run check
+      - name: Audit application dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Report upstream build-tool audit findings
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
+      - name: Build application
+        run: npm run build

@@ -1,0 +1,122 @@
+{
+  "name": "packetlark",
+  "version": "0.1.0",
+  "description": "Friendly FidoNet messaging from RetroDigital BBS",
+  "homepage": "https://github.com/deepend-tildeclub",
+  "author": "RetroDigital BBS contributors",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "engines": {
+    "node": "^24.0.0 || ^26.0.0"
+  },
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "dev:x11": "npm run build && electron . --ozone-platform=x11",
+    "dev:software": "npm run build && electron . --disable-gpu",
+    "build": "tsc -p tsconfig.main.json && vite build",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "test": "vitest run",
+    "test:ui": "playwright test",
+    "test:desktop": "node tools/smoke-desktop.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm test && npm run format:check",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:dir": "npm run build && electron-builder --dir --publish never"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "iconv-lite": "^0.7.0",
+    "sql.js": "^1.14.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^24.12.0",
+    "@types/sql.js": "^1.4.10",
+    "electron": "44.7.2",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.12.0",
+    "prettier": "^3.8.1",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.57.1",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  },
+  "allowScripts": {
+    "electron-winstaller": false,
+    "fsevents": false
+  },
+  "build": {
+    "appId": "net.retrodigital.retropost",
+    "productName": "PacketLark",
+    "icon": "build/icon.png",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "node_modules/sql.js/dist/sql-wasm.wasm",
+        "to": "sql-wasm.wasm"
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": "packetlark",
+        "name": "PacketLark account",
+        "role": "Viewer"
+      },
+      {
+        "ext": "retropost",
+        "name": "PacketLark account (legacy)",
+        "role": "Viewer"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "maintainer": "RetroDigital BBS",
+      "desktop": {
+        "entry": {
+          "Name": "PacketLark"
+        }
+      },
+      "syncDesktopName": true
+    }
+  },
+  "desktopName": "packetlark.desktop"
+}
