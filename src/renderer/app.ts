@@ -2,6 +2,7 @@ import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '..
 import './style.css';
 import { mailboxCounts, messageSort, reconcileChildren, sortMessages } from './mailbox.js';
 import { visibleDiscussions } from '../core/areas.js';
+import { defaultNotifications } from '../core/notifications.js';
 declare global {
   interface Window {
     packetlark: Api;
@@ -33,6 +34,7 @@ let rowLimit = 200;
 const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
 let moreMessages: HTMLButtonElement | undefined;
 let renderDiscussions: (() => void) | null = null;
+let pendingNotification: string | undefined;
 const app = document.querySelector<HTMLDivElement>('#app')!;
 function e<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -158,6 +160,21 @@ async function refresh() {
     } while (refreshAgain);
   } finally {
     refreshing = false;
+  }
+  if (pendingNotification !== undefined) {
+    const id = pendingNotification;
+    pendingNotification = undefined;
+    const message = state.messages.find((m) => m.id === id && m.folder === 'inbox' && !m.internal);
+    if (!message || (message.area && !state.areas.some((a) => a.tag === message.area))) {
+      notify('That message is no longer available in your Inbox.');
+      return;
+    }
+    folder = message.area ? `area:${message.area}` : 'inbox';
+    selection = message.id;
+    query = search.value = '';
+    unreadOnly = false;
+    render();
+    if (!message.read) void action(() => api.mark(message.id, { read: true }));
   }
 }
 function renderRuntime() {
@@ -897,6 +914,7 @@ function accountDialog() {
       e('p', '', 'Import the account file supplied by your provider.'),
       button('Import account', () => void action(() => api.importAccount()), 'primary'),
     );
+    notificationPreferences(body);
     return;
   }
   for (const [label, value] of [
@@ -921,6 +939,7 @@ function accountDialog() {
     ),
     button('Back up mailbox', () => void action(() => api.backup())),
   );
+  notificationPreferences(body);
   if (state.storageWarning)
     body.append(
       e(
@@ -929,6 +948,82 @@ function accountDialog() {
         'Unlock your operating system keyring before importing or using an account.',
       ),
     );
+}
+function notificationPreferences(body: HTMLElement) {
+  const group = e('fieldset', 'notification-settings');
+  group.append(e('legend', '', 'Desktop notifications'));
+  const settings = state.notifications || defaultNotifications;
+  const controls = (['enabled', 'discussions', 'previews'] as const).map((key, i) => {
+    const label = e('label', 'notification-option');
+    const checkbox = e('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = settings[key];
+    label.append(
+      checkbox,
+      e(
+        'span',
+        '',
+        ['Enable desktop notifications', 'Include discussion posts', 'Show sender and subject'][i],
+      ),
+    );
+    group.append(label);
+    return checkbox;
+  });
+  const [enabled, discussions, previews] = controls;
+  const update = () => {
+    discussions.disabled = previews.disabled = !enabled.checked;
+  };
+  for (const control of controls)
+    control.addEventListener('change', () => {
+      const previous = state.notifications || defaultNotifications;
+      controls.forEach((checkbox) => {
+        checkbox.disabled = true;
+      });
+      void (async () => {
+        try {
+          await api.setNotifications({
+            enabled: enabled.checked,
+            discussions: discussions.checked,
+            previews: previews.checked,
+          });
+          await refresh();
+        } catch (error) {
+          [enabled.checked, discussions.checked, previews.checked] = [
+            previous.enabled,
+            previous.discussions,
+            previous.previews,
+          ];
+          notify(
+            error instanceof Error ? error.message : 'Could not save notification settings.',
+            true,
+          );
+        } finally {
+          enabled.disabled = false;
+          update();
+        }
+      })();
+    });
+  const test = button(
+    'Test notification',
+    () =>
+      void action(async () => {
+        await api.testNotification();
+        notify('Test notification requested. Check your desktop notifications.');
+      }),
+  );
+  test.disabled = state.notificationsSupported === false;
+  group.append(
+    test,
+    e(
+      'p',
+      'muted',
+      state.notificationsSupported === false
+        ? 'Your desktop notification service is unavailable. Check your operating system notification settings.'
+        : 'New mail alerts appear while PacketLark is open in the background. Your operating system controls sound and Do Not Disturb.',
+    ),
+  );
+  update();
+  body.append(group);
 }
 function contactDialog(name = '', address = '') {
   const { body, close } = dialog('Save contact');
@@ -1167,6 +1262,10 @@ document.addEventListener('keydown', (event) => {
   }
 });
 if (api) {
+  api.onNotification?.((id) => {
+    pendingNotification = id;
+    void refresh().catch((error) => notify(String(error), true));
+  });
   api.onChanged((update?: RuntimeUpdate) => {
     if (state && update && state.revision !== undefined && update.revision < state.revision) return;
     if (state && update && !refreshing && state.revision === update.revision) {

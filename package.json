@@ -67,6 +67,10 @@
       {
         "from": "node_modules/sql.js/dist/sql-wasm.wasm",
         "to": "sql-wasm.wasm"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "notification-icon.png"
       }
     ],
     "fileAssociations": [

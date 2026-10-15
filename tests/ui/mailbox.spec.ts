@@ -2,7 +2,13 @@ import { test as base, expect, _electron, type Page, type Locator } from '@playw
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Compose, Message, RuntimeUpdate, State } from '../../src/core/model.js';
+import type {
+  Compose,
+  Message,
+  NotificationSettings,
+  RuntimeUpdate,
+  State,
+} from '../../src/core/model.js';
 
 // Exercise the real Electron renderer against a mocked application API, without a downloaded browser.
 // Playwright requires the destructuring signature even when no built-in fixtures are needed.
@@ -50,6 +56,8 @@ declare global {
       runtime(status: string, syncing?: boolean): void;
       touch(): void;
       replaceMessage(message: Message): void;
+      openNotification(messageId: string): void;
+      notificationTests(): number;
     };
   }
 }
@@ -105,6 +113,8 @@ async function setup(
       let listSent = false;
       let stateReads = 0;
       const changed: ((update?: RuntimeUpdate) => void)[] = [];
+      const notifications: ((id: string) => void)[] = [];
+      let notificationTests = 0;
       const emit = (dataChanged = true) => {
         if (dataChanged) data.revision = (data.revision || 0) + 1;
         changed.forEach((cb) =>
@@ -112,6 +122,10 @@ async function setup(
         );
       };
       window.packetlarkTest = {
+        openNotification: (id) => {
+          notifications.forEach((callback) => callback(id));
+        },
+        notificationTests: () => notificationTests,
         stateReads: () => stateReads,
         runtime: (status, syncing = false) => {
           data.status = status;
@@ -292,6 +306,20 @@ async function setup(
             emit();
           },
           backup: async () => {},
+          setNotifications: async (value: NotificationSettings) => {
+            data.notifications = structuredClone(value);
+            emit();
+          },
+          testNotification: async () => {
+            notificationTests++;
+          },
+          onNotification: (callback: (id: string) => void) => {
+            notifications.push(callback);
+            return () => {
+              const i = notifications.indexOf(callback);
+              if (i >= 0) notifications.splice(i, 1);
+            };
+          },
           onChanged: (cb: (update?: RuntimeUpdate) => void) => {
             changed.push(cb);
             return () => {};
@@ -970,4 +998,96 @@ test('hides cached ADM descriptions from the sidebar, composer, search and discu
   await expect(browser.locator('.discussion-row')).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Test discussion', exact: true })).toHaveCount(0);
+});
+
+test('saves notification choices and can request a native test notification', async ({ page }) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: 'Account', exact: true }));
+  const account = page.getByRole('dialog', { name: 'Your account' });
+  const enabled = account.getByRole('checkbox', {
+    name: 'Enable desktop notifications',
+    exact: true,
+  });
+  const discussions = account.getByRole('checkbox', {
+    name: 'Include discussion posts',
+    exact: true,
+  });
+  const previews = account.getByRole('checkbox', { name: 'Show sender and subject', exact: true });
+  await expect(enabled).toBeChecked();
+  await expect(discussions).toBeChecked();
+  await expect(previews).toBeChecked();
+  // DOM events also work in the restricted offscreen host; native checkboxes work normally in CI.
+  await discussions.evaluate((box: HTMLInputElement) => {
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(enabled).toBeEnabled();
+  await previews.evaluate((box: HTMLInputElement) => {
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(enabled).toBeEnabled();
+  await click(account.getByRole('button', { name: 'Test notification', exact: true }));
+  await expect.poll(() => page.evaluate(() => window.packetlarkTest.notificationTests())).toBe(1);
+  await enabled.evaluate((box: HTMLInputElement) => {
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(discussions).toBeDisabled();
+  await expect(previews).toBeDisabled();
+  await click(account.getByRole('button', { name: 'Close', exact: true }));
+  await click(page.getByRole('button', { name: 'Account', exact: true }));
+  await expect(enabled).not.toBeChecked();
+  await expect(previews).not.toBeChecked();
+  await expect(discussions).not.toBeChecked();
+});
+
+test('notification clicks open the matching discussion and clear filters without losing sort order', async ({
+  page,
+}) => {
+  await setup(page);
+  await page.getByRole('combobox', { name: 'Sort messages', exact: true }).selectOption('oldest');
+  await page.getByRole('searchbox', { name: 'Search messages', exact: true }).fill('no match');
+  await click(page.getByRole('button', { name: 'Unread only', exact: true }));
+  await page.evaluate(() => window.packetlarkTest.openNotification('public'));
+  await expect(page.locator('.reader-heading h1')).toHaveText('A community discussion');
+  await expect(page.locator('.body-text')).toHaveText('A public post');
+  await expect(page.getByRole('searchbox', { name: 'Search messages', exact: true })).toHaveValue(
+    '',
+  );
+  await expect(page.getByRole('combobox', { name: 'Sort messages', exact: true })).toHaveValue(
+    'oldest',
+  );
+  await expect(page.getByRole('button', { name: 'Unread only', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(page.locator('.message-row')).toHaveClass(/selected/);
+  await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
+});
+
+test('notification clicks preserve an open draft and handle a missing message safely', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ New message' }));
+  const draft = page.getByRole('dialog');
+  await draft
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('Keep this unfinished draft');
+  await page.evaluate(() => window.packetlarkTest.openNotification('public'));
+  await expect(draft.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Keep this unfinished draft',
+  );
+  await click(draft.getByRole('button', { name: 'Save & close', exact: true }).last());
+  await expect(draft).toHaveCount(0);
+  await expect(page.locator('.reader-heading h1')).toHaveText('A community discussion');
+  await page.evaluate(() => window.packetlarkTest.openNotification('deleted-message'));
+  await expect(page.locator('#toast')).toContainText('no longer available');
+  await expect(page.locator('.reader-heading h1')).toHaveText('A community discussion');
+  await click(page.getByRole('button', { name: /^Drafts/ }));
+  await click(page.locator('.message-row'));
+  await expect(
+    page.getByRole('dialog').getByRole('textbox', { name: 'Message', exact: true }),
+  ).toHaveValue('Keep this unfinished draft');
 });

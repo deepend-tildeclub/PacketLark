@@ -24,6 +24,15 @@ const api: Api = {
   areaCommand: (tag, subscribe) => call('area', tag, subscribe),
   requestAreaList: () => call('areaList'),
   backup: () => call('backup'),
+  setNotifications: (value) => call('notifications', value),
+  testNotification: () => call('testNotification'),
+  onNotification(cb) {
+    const listener = (_event: Electron.IpcRendererEvent, id: unknown) => {
+      if (typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)) cb(id);
+    };
+    ipcRenderer.on('notification:open', listener);
+    return () => ipcRenderer.removeListener('notification:open', listener);
+  },
   onChanged(cb) {
     const listener = (_event: Electron.IpcRendererEvent, update?: RuntimeUpdate) => cb(update);
     ipcRenderer.on('changed', listener);

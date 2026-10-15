@@ -28,6 +28,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
 - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
 - Send & receive manually or periodically while the application is running.
+- Native Windows/Linux new-mail notifications while the app is in the background, with click-to-open and saved notification preferences.
 - Plain-text display, UTF-8 and selected legacy outgoing encodings, incoming declared encodings supported by iconv-lite.
 - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
 - Explicit public replies and private replies, plus AreaFix join/leave requests.
@@ -79,6 +80,16 @@ The npm 12 install-script policy explicitly denies hooks for the unused Squirrel
 The stdlib-only Python script allocates an unused point number, generates independent session/packet/AreaFix passwords, backs up `sbbsecho.ini`, appends a point-only linked-node entry, and writes a matching private signup file. Preview is the default. With `--apply`, live coordination automatically waits for SBBSecho/EchoCfg, uses SBBSecho's mutex, and signals import/export events afterwards; your BBS stays online without manual event pausing or a restart. See [the full Synchronet instructions](docs/SYNCHRONET.md) for custom paths/event codes and exceptional failure handling.
 
 This is a **point link**, not a Synchronet terminal-login user. No BBS user record is required for the client. Initial discussion names in a signup file are a catalogue, not existing server subscriptions; use Manage discussions to request joins and wait for the provider's response.
+
+## Desktop notifications
+
+Notifications use the operating system's own UI: Windows toasts/Notification Center and Linux's desktop notification service through Electron/libnotify. They are enabled by default for direct messages and discussion posts while PacketLark is open in the background. Mail collected in one exchange is grouped into one alert; clicking it brings PacketLark forward and opens the latest eligible message. An open draft stays intact. Existing unread messages do not generate a startup alert, and duplicates, consumed AreaFix traffic, and hidden ADM discussions do not generate alerts.
+
+Open **Account → Desktop notifications** to turn alerts off, exclude discussion posts, or hide sender/subject previews. Message bodies are never included in notifications. Preferences are saved with the mailbox and survive restarts. **Test notification** requests an alert even while the app has focus; sound, banners, lock-screen display, and Do Not Disturb are controlled by the OS. Closing PacketLark still exits the app and stops polling.
+
+The Windows NSIS and ZIP builds retain the existing application ID and use a stable toast activation identity; the current Electron runtime registers the required per-user shortcut/activation information when its notification presenter is initialized. A moved ZIP build needs to be launched again from its new location. Development runs use a separate identity to avoid replacing the installed app's toast activation registration. Linux uses the existing `packetlark.desktop` identity and a bundled notification icon. The `.deb` package already depends on `libnotify4`; other Linux installs also need libnotify and a running desktop notification server. Hyprland setups need a notification daemon such as mako or dunst. The app does not install or replace your desktop's notification service.
+
+Unavailable/disabled notification services do not fail mail delivery or packet acknowledgement. Notifications are generated only from newly committed mailbox messages, including mail saved before a later exchange error. A notification pointing to a deleted/hidden message leaves the mailbox unchanged and displays a friendly notice.
 
 ## Limits and privacy
 

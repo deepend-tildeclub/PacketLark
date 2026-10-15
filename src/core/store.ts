@@ -7,6 +7,8 @@ import {
   composeSchema,
   draftSchema,
   profileSchema,
+  notificationSettingsSchema,
+  type NotificationSettings,
   type Compose,
   type Discussion,
   type DiscussionDirectory,
@@ -193,7 +195,16 @@ export class Store {
       status: p ? 'Ready to send & receive.' : 'Import your account file to get started.',
       lastSync: this.meta('lastSync'),
       storageWarning: false,
+      notifications: this.notificationSettings(),
     });
+  }
+  notificationSettings(): NotificationSettings {
+    return notificationSettingsSchema.parse(JSON.parse(this.meta('notifications') || '{}'));
+  }
+  setNotifications(value: NotificationSettings): void {
+    const settings = notificationSettingsSchema.parse(value);
+    if (JSON.stringify(settings) === JSON.stringify(this.notificationSettings())) return;
+    this.mutate(() => this.setMeta('notifications', JSON.stringify(settings)));
   }
   saveDraft(value: Compose): string {
     const p = this.profile();
@@ -402,6 +413,9 @@ export class Store {
     });
   }
   receive(messages: Message[]): number {
+    return this.receiveNew(messages).length;
+  }
+  receiveNew(messages: Message[]): Message[] {
     const p = this.profile();
     const receipts = this.rows('SELECT id,message_key FROM message_receipts');
     const known = this.messages(),
@@ -410,7 +424,7 @@ export class Store {
         ...known.filter((m) => m.msgid).map((m) => JSON.stringify([m.area, m.msgid])),
         ...receipts.map((r) => r.message_key as string).filter(Boolean),
       ]);
-    let count = 0;
+    const accepted: Message[] = [];
     this.mutate(() => {
       for (const m of messages) {
         const key = JSON.stringify([m.area, m.msgid]);
@@ -424,7 +438,7 @@ export class Store {
           continue;
         }
         this.put(m);
-        count++;
+        accepted.push(m);
         if (m.area) {
           const areas = JSON.parse(this.meta('areas') || '[]') as State['areas'];
           if (!areas.some((a) => a.tag === m.area)) {
@@ -434,7 +448,7 @@ export class Store {
         }
       }
     });
-    return count;
+    return accepted;
   }
   mark(id: string, patch: { read?: boolean; starred?: boolean }): void {
     const m = this.findMessage(id);

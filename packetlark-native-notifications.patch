@@ -1,0 +1,1348 @@
+diff --git a/README.md b/README.md
+index f0d8b8dcd192c84f7701bf567af7ad8ce49467d7..3c04d2a8e38e5b3fe4696421636139c649a7b79e 100644
+--- a/README.md
++++ b/README.md
+@@ -28,6 +28,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while
+ - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
+ - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
+ - Send & receive manually or periodically while the application is running.
++- Native Windows/Linux new-mail notifications while the app is in the background, with click-to-open and saved notification preferences.
+ - Plain-text display, UTF-8 and selected legacy outgoing encodings, incoming declared encodings supported by iconv-lite.
+ - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
+ - Explicit public replies and private replies, plus AreaFix join/leave requests.
+@@ -80,6 +81,16 @@ The stdlib-only Python script allocates an unused point number, generates indepe
+ 
+ This is a **point link**, not a Synchronet terminal-login user. No BBS user record is required for the client. Initial discussion names in a signup file are a catalogue, not existing server subscriptions; use Manage discussions to request joins and wait for the provider's response.
+ 
++## Desktop notifications
++
++Notifications use the operating system's own UI: Windows toasts/Notification Center and Linux's desktop notification service through Electron/libnotify. They are enabled by default for direct messages and discussion posts while PacketLark is open in the background. Mail collected in one exchange is grouped into one alert; clicking it brings PacketLark forward and opens the latest eligible message. An open draft stays intact. Existing unread messages do not generate a startup alert, and duplicates, consumed AreaFix traffic, and hidden ADM discussions do not generate alerts.
++
++Open **Account → Desktop notifications** to turn alerts off, exclude discussion posts, or hide sender/subject previews. Message bodies are never included in notifications. Preferences are saved with the mailbox and survive restarts. **Test notification** requests an alert even while the app has focus; sound, banners, lock-screen display, and Do Not Disturb are controlled by the OS. Closing PacketLark still exits the app and stops polling.
++
++The Windows NSIS and ZIP builds retain the existing application ID and use a stable toast activation identity; the current Electron runtime registers the required per-user shortcut/activation information when its notification presenter is initialized. A moved ZIP build needs to be launched again from its new location. Development runs use a separate identity to avoid replacing the installed app's toast activation registration. Linux uses the existing `packetlark.desktop` identity and a bundled notification icon. The `.deb` package already depends on `libnotify4`; other Linux installs also need libnotify and a running desktop notification server. Hyprland setups need a notification daemon such as mako or dunst. The app does not install or replace your desktop's notification service.
++
++Unavailable/disabled notification services do not fail mail delivery or packet acknowledgement. Notifications are generated only from newly committed mailbox messages, including mail saved before a later exchange error. A notification pointing to a deleted/hidden message leaves the mailbox unchanged and displays a friendly notice.
++
+ ## Limits and privacy
+ 
+ FidoNet is store-and-forward. Sent means the provider accepted the packet, not delivered or read. Direct messages are not end-to-end encrypted. CRAM-MD5 is legacy BinkP authentication, not message encryption; use the optional certificate-verified implicit TLS connection if your provider offers it. The app does not implement BinkD's legacy CRYPT extension or silently downgrade TLS verification.
+diff --git a/SOURCE-MANIFEST.sha256 b/SOURCE-MANIFEST.sha256
+index 22253436dfb3b3cf565a442186a2738946df1668..e1bd0ab631f40e727edbaa9d853724b3ebff9e2f 100644
+--- a/SOURCE-MANIFEST.sha256
++++ b/SOURCE-MANIFEST.sha256
+@@ -7,45 +7,48 @@ b5d307d2d34f1065698cb0cf3311519076d13a5b6bd7d9abd4eabd3c0d166c65  .gitignore
+ d61e0ac851a73e227249f1b53c1cbe6d21d5ccf8d82364f8ce0f800600aa722e  .prettierignore
+ f583ff6d8ba542b76af46c4c024a0941b77aee51133bb0f69ec6eb1fa613de7e  .prettierrc.json
+ dba01401a786569262fceec7080d38e16eb14b65713deb7800fe3f5dcf594ea5  LICENSE
+-251e14e16d18ad59a8fc75f0304bb4815a72efc81916a95cf8e00c52d0e66912  README.md
++11c1b3bf6f3368166f4618f1771941c5b9a2cd8a01c3453dfb2d00078e320ec4  README.md
+ 7075825e0dcb30a90e058fb96e5e0bf15dbe475627ca7d663d6bd5597734e6d4  build/icon.ico
+ 48f80b5682637c31c207958f5e704016a0e0c1ee96f137d1681a07919b33871a  build/icon.png
+ 4a21f7d0987201775652c568c93fc40757d2ac3913891be3237a33cba2beed96  build/icon.svg
+ 0c4ce2121f299bfefc86bb3149911a65620f085adf314a9fe391caaa11c78638  docs/ARCHITECTURE.md
+ 59da13fae340b7f2c70c08a13f5980988f9cf0c4103a7b9dcb3b72ba4580a9c3  docs/DEVELOPMENT.md
+ 8a3af3aae558b14cc4564572080d577866a10b6d3a9d86ae43b1ee7e9d72d5a5  docs/SYNCHRONET.md
+-fc3a8ddbfebba5647b19e28697d408bc0f477b8b412a67f0c86cd94898330abc  docs/VALIDATION.md
++8ab7b52e108cbb7dba3ea8d2d7cdc693a9660a7a6f56f018f3c75275c2f64a2d  docs/VALIDATION.md
+ df03b63de48d43f7a82f96b029e96d9e7e237e6621b617aaeac0f83695ab2cd2  eslint.config.js
+ 24bad909cbb5fbd838d4cb5586fc01278a337b3ccb451c272d465a7434cc9d04  examples/account.example.packetlark
+ 40fedff80e311713375d30875185e218418ebeb46b00c2c0b7ebfa33d559a762  package-lock.json
+-a414456e1fb7f41cb76aa8d020a1d77f3065e360dd69595695cd6a058a7c8c84  package.json
++954ae16c7d59394129d4720781d10fcf4bd2c5a337910d7ae74361e0cf72078f  package.json
+ 7f2a443b6326450fc444329de31607623e263f6542bd4ca85cf955c9b993bd22  playwright.config.ts
+ 05b30fb6fed2d444a3fbd1bddbf88ade7f84d77ff52307f0fae2f51f25c69791  src/core/areas.ts
+ 16a00e07edb3c462e6e3682cf23abcf7dbf0fd853d084b2c2b585be9ded19587  src/core/binkp.ts
+ a99d3b84a024b4b4013c90b1516942666e89baa84b45bf343cebeed34d775ea6  src/core/discussions.ts
+-4cd7fe38467747988e523a0a9904c48baa4c6387a93b19cadcf9aff9d3151152  src/core/model.ts
++4533079979c3f3cf3120c5968c592a12a474e348abf949f0db03e41896ba96f5  src/core/model.ts
++f9c377e12fd69f7ab1d543734ffb215a023416f4dc45d444dbe178d0a580f3bb  src/core/notifications.ts
+ b263c2eec1d335bff3cdf19120dcba57d555525481106030678f66b24bcb9900  src/core/packet.ts
+-f65e316f6ec3b7908807b8ce1b4dd59b8c27014f89899b3398335d6946faf430  src/core/store.ts
+-67d76942201b167ee1d994c637042ed162ff83f1899225de137a25f09a7e8582  src/main/index.ts
+-1788fe456937e7ff625c34ee11d4c5a5cc316f73e7a17297d6f6e11b8649ee4d  src/main/preload.cts
+-23d504a27b3a624d7a7a908eddfe5163bddb3f04dfe12cbec5022a385fe8cad0  src/renderer/app.ts
++01e96e2a1b23767dffcc28c06c4804b175580cdc852dd8f255b3a5bfc0d35098  src/core/store.ts
++5b61e7e292ccfc5da7fa2584622ea5d9fa9f602f147eb0002d982609b2d14ead  src/main/index.ts
++ff6a32323ea463c46f0b7b59591fd875ceacf2ce35d2a0358d108ac7c1dcf059  src/main/notifications.ts
++df0c42ed6cda227ce083438886176744e1f62b7ef1dcea8b0ad00fc650706d18  src/main/preload.cts
++aaf98c6be133316eb1723d71ccef1c50417cfb055b71115009beeaed02d6fce6  src/renderer/app.ts
+ da5bf71d48cf909584a01c80b445f730507068f5b34c920f352e2bfcf0315e4c  src/renderer/env.d.ts
+ 667a33aac50f8ff57d5a9aab8534c54a1a37453f03d25cd13a256185f5f2f1e8  src/renderer/index.html
+ d3a7132d86a25d81875008af25f42068144d752c37ca77d5e7279951e939e79d  src/renderer/mailbox.ts
+-cc7528662e3a3a405267df094b020e09db01f7aea7cea9ce446808472e8d8ee9  src/renderer/style.css
++93b7c40d5f73114d068e1fabefb5e280947659dc22153540d621465a5ea536f8  src/renderer/style.css
+ 1803da702465dae9cfbc21e0f5a0247664a09adb439173528e9a00fd5ddc602a  src/renderer/theme.css
+ ef202c9865561d5e0e6dc016d55616f335aa1f37f4d0092342de96261de47d94  tests/binkp.test.ts
+ b04c51bcfb8127671dc712f97148fca4d2c5314cd7850d341d0555daec72cc54  tests/discussions.test.ts
+ c3c7f9db2082278676009016a9a682bc66440d95c5be1414a76c50a3aff79666  tests/fixtures.ts
+ 40218c450f7b4817e9571b1403c9e73d932ec1c77b31a6a4bb07f0d1d3a3ce33  tests/mail-controls.test.ts
++a295332fff19221141a92c77ceca71deff8ee1a1f00277365c394817237bbb2f  tests/notifications.test.ts
+ e776f23d38fe691b43f0f2f4b287d5e9b21c38d98761b47319c3773e9faf98f8  tests/packet.test.ts
+ 45fc94ea08fe1fef6d788e62d11f31bb722e61e4a22248c53bbfb6edd046f117  tests/performance.test.ts
+ 8eaf15c99d30bf1b172d8136559c86bc7e2c5c09714d298190ae4ffa87f9243a  tests/store.test.ts
+ 5837d7c4c679bd104c30b6a0214506da55a94bbad49833bf1965d958c8eb31a2  tests/ui/harness.cjs
+-c32bff1bda979e889e9a9309b945fa0091b3392b1a38a7d0fcc7dcf2b5cc57b5  tests/ui/mailbox.spec.ts
++7722c37eadbc43d552af3bd66bcc9aa15f06f5f4a3fe316609234d9bb53b6bd7  tests/ui/mailbox.spec.ts
+ ebde048148950519803593b0d7dd7c393b40602142a64d1229bc5252be05cff3  tools/live_provision.py
+ 0178f1d0b74e611eb754ee574c2a995ec27b59240f240ae4dcd329a80922356f  tools/provision_point.py
+-ad43bf9ac73dd305a7992b0799f1fb8cddafb1702f217ee7f7417ae50a7c431a  tools/smoke-desktop.mjs
++5d08935e7101dcf5dec8c1c19227972f6e40035466359ec5cb93ef10c78ce3e1  tools/smoke-desktop.mjs
+ 133bd0d93601994a01e2ae0a713f10d0ca2224cd65d0ca083c81ad4d9646efab  tools/test_provision_point.py
+ 023786271830eed94e44a0eaf4106302d3456980ad36cf56794c99e3cf15f93a  tsconfig.json
+ 533e890d4f0768d2ccbc47634d015fe0bca49c0ca6327d892548cacdcac7fc8c  tsconfig.main.json
+diff --git a/docs/VALIDATION.md b/docs/VALIDATION.md
+index 40cb4849e5c16fdede3d8e79587a5f69a751bb84..71d804f5ae07182d25b772d44b5b7b3980634e9b 100644
+--- a/docs/VALIDATION.md
++++ b/docs/VALIDATION.md
+@@ -1,5 +1,33 @@
+ # 0.1.0 validation record
+ 
++## Native desktop notifications
++
++Based on PacketLark `main` commit `99b719d`. TypeScript, lint/format checks,
++the application build, 84 core tests, 28 Electron renderer tests in headless
++DOM mode, and 24 provisioning tests pass. The production main/preload IPC smoke
++checks persisted notification choices, invalid-setting rejection, the isolated
++notification-click bridge, existing revision updates, and renderer sandboxing.
++Its external local wrapper only bypasses this restricted host's single-instance
++lock; no production test bypass is shipped.
++
++A clean locked dependency install and Linux `dist:dir` package build also pass.
++The produced ASAR contains both notification modules and the runtime dependency
++tree; the external notification icon exactly matches the source icon.
++
++Tests cover committed receipt candidates, duplicate/control-message exclusion,
++failed transaction rollback, read/ADM filtering, grouping, privacy settings,
++Windows toast XML/activation validation, Linux markup escaping, unsupported and
++failed native APIs, bounded notification handles, saved preferences, click
++navigation, stale targets, and preserving open drafts. Platform adapters are
++tested with native API fakes; these tests do not claim actual OS popup display.
++
++The unchanged Windows/Linux workflow runs the added unit/UI tests, the expanded
++production IPC smoke, and packaging checks. The icon is included as a package
++resource. There are no dependency changes or mailbox-schema migrations. Actual
++Windows/Linux banners, OS Do Not Disturb behavior, and persisted Windows Action
++Center activation still need acceptance testing on the target desktops using
++Account's Test notification and a background incoming-mail exchange.
++
+ ## Live point provisioning and administrative discussion filtering
+ 
+ Based on PacketLark `main` commit `e912dd4`. TypeScript, ESLint, Prettier,
+diff --git a/package.json b/package.json
+index 7a3b68aa5c2bb68276a616a912c76eed349d7ee2..d16ee7c228323763bbf8b311342dfdd389579cc2 100644
+--- a/package.json
++++ b/package.json
+@@ -67,6 +67,10 @@
+       {
+         "from": "node_modules/sql.js/dist/sql-wasm.wasm",
+         "to": "sql-wasm.wasm"
++      },
++      {
++        "from": "build/icon.png",
++        "to": "notification-icon.png"
+       }
+     ],
+     "fileAssociations": [
+diff --git a/src/core/model.ts b/src/core/model.ts
+index 0394d676d998f9a7643c044b0db71fc970aced39..125c7f05e040af0f8ee5b5abea2c60a117cb8a14 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -177,6 +177,14 @@ export type DiscussionDirectory = {
+   updatedAt: string | null;
+   error: string;
+ };
++export const notificationSettingsSchema = z
++  .object({
++    enabled: z.boolean().default(true),
++    discussions: z.boolean().default(true),
++    previews: z.boolean().default(true),
++  })
++  .strict();
++export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
+ export type State = {
+   revision?: number;
+   account: PublicAccount | null;
+@@ -188,6 +196,8 @@ export type State = {
+   status: string;
+   lastSync: string | null;
+   storageWarning: boolean;
++  notifications?: NotificationSettings;
++  notificationsSupported?: boolean;
+ };
+ export type RuntimeUpdate = { revision: number; syncing: boolean; status: string };
+ export type Api = {
+@@ -205,5 +215,8 @@ export type Api = {
+   areaCommand(tag: string, subscribe: boolean): Promise<void>;
+   requestAreaList(): Promise<void>;
+   backup(): Promise<void>;
++  setNotifications(value: NotificationSettings): Promise<void>;
++  testNotification(): Promise<void>;
++  onNotification(cb: (messageId: string) => void): () => void;
+   onChanged(cb: (update?: RuntimeUpdate) => void): () => void;
+ };
+diff --git a/src/core/notifications.ts b/src/core/notifications.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..522dc0aa9c62de0af3957e8f82c87d60665ee1ce
+--- /dev/null
++++ b/src/core/notifications.ts
+@@ -0,0 +1,75 @@
++import type { NotificationSettings, State } from './model.js';
++
++export const defaultNotifications: NotificationSettings = {
++  enabled: true,
++  discussions: true,
++  previews: true,
++};
++export type MailNotice = { title: string; body: string; messageId: string };
++
++function line(value: string, limit: number): string {
++  const text = value
++    .replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, ' ')
++    .replace(/\s+/g, ' ')
++    .trim();
++  return Array.from(text).slice(0, limit).join('');
++}
++
++/** Only IDs returned by a successful durable receive may create new-mail alerts. */
++export function newMailNotice(ids: ReadonlySet<string>, state: State): MailNotice | null {
++  const settings = state.notifications || defaultNotifications;
++  if (!settings.enabled) return null;
++  const areas = new Set(state.areas.map((area) => area.tag));
++  const messages = state.messages.filter(
++    (m) =>
++      ids.has(m.id) &&
++      m.folder === 'inbox' &&
++      !m.read &&
++      !m.internal &&
++      (!m.area || (settings.discussions && areas.has(m.area))),
++  );
++  if (!messages.length) return null;
++  const newest = messages.reduce((a, b) =>
++    (Date.parse(b.date) || 0) > (Date.parse(a.date) || 0) ? b : a,
++  );
++  const title = `PacketLark — ${messages.length === 1 ? 'New message' : `${messages.length} new messages`}`;
++  const direct = messages.filter((m) => !m.area).length;
++  const counts = [
++    direct ? `${direct} direct message${direct === 1 ? '' : 's'}` : '',
++    messages.length - direct
++      ? `${messages.length - direct} discussion post${messages.length - direct === 1 ? '' : 's'}`
++      : '',
++  ]
++    .filter(Boolean)
++    .join(' · ');
++  return {
++    title,
++    body: settings.previews
++      ? `${messages.length > 1 ? `${counts}\nLatest: ` : ''}${line(newest.from, 80) || 'Someone'}${newest.area ? ` · ${line(newest.area, 60)}` : ''}\n${line(newest.subject, 160) || '(No subject)'}`
++      : counts,
++    messageId: newest.id,
++  };
++}
++
++export function notificationTarget(arguments_: string): string | null {
++  return /^packetlark-message:([A-Za-z0-9_-]{1,128})$/.exec(arguments_)?.[1] || null;
++}
++
++export function notificationMarkup(value: string): string {
++  return value.replace(
++    /[&<>"']/g,
++    (c) =>
++      ({
++        '&': '&amp;',
++        '<': '&lt;',
++        '>': '&gt;',
++        '"': '&quot;',
++        "'": '&apos;',
++      })[c]!,
++  );
++}
++
++export function windowsToast(notice: MailNotice): string {
++  const launch = notice.messageId ? `packetlark-message:${notice.messageId}` : 'packetlark-test';
++  return `<toast launch="${notificationMarkup(launch)}"><visual><binding template="ToastGeneric"><text>${notificationMarkup(notice.title)}</text><text>${notificationMarkup(notice.body)}</text></binding></visual></toast>`;
++}
+diff --git a/src/core/store.ts b/src/core/store.ts
+index b37311c2d2bf84d10a87baced50ed3837cf91394..82621eb2f23ea43f5f5cd35d224865caef26d42f 100644
+--- a/src/core/store.ts
++++ b/src/core/store.ts
+@@ -7,6 +7,8 @@ import {
+   composeSchema,
+   draftSchema,
+   profileSchema,
++  notificationSettingsSchema,
++  type NotificationSettings,
+   type Compose,
+   type Discussion,
+   type DiscussionDirectory,
+@@ -193,8 +195,17 @@ export class Store {
+       status: p ? 'Ready to send & receive.' : 'Import your account file to get started.',
+       lastSync: this.meta('lastSync'),
+       storageWarning: false,
++      notifications: this.notificationSettings(),
+     });
+   }
++  notificationSettings(): NotificationSettings {
++    return notificationSettingsSchema.parse(JSON.parse(this.meta('notifications') || '{}'));
++  }
++  setNotifications(value: NotificationSettings): void {
++    const settings = notificationSettingsSchema.parse(value);
++    if (JSON.stringify(settings) === JSON.stringify(this.notificationSettings())) return;
++    this.mutate(() => this.setMeta('notifications', JSON.stringify(settings)));
++  }
+   saveDraft(value: Compose): string {
+     const p = this.profile();
+     if (!p) throw new Error('Import an account first.');
+@@ -402,6 +413,9 @@ export class Store {
+     });
+   }
+   receive(messages: Message[]): number {
++    return this.receiveNew(messages).length;
++  }
++  receiveNew(messages: Message[]): Message[] {
+     const p = this.profile();
+     const receipts = this.rows('SELECT id,message_key FROM message_receipts');
+     const known = this.messages(),
+@@ -410,7 +424,7 @@ export class Store {
+         ...known.filter((m) => m.msgid).map((m) => JSON.stringify([m.area, m.msgid])),
+         ...receipts.map((r) => r.message_key as string).filter(Boolean),
+       ]);
+-    let count = 0;
++    const accepted: Message[] = [];
+     this.mutate(() => {
+       for (const m of messages) {
+         const key = JSON.stringify([m.area, m.msgid]);
+@@ -424,7 +438,7 @@ export class Store {
+           continue;
+         }
+         this.put(m);
+-        count++;
++        accepted.push(m);
+         if (m.area) {
+           const areas = JSON.parse(this.meta('areas') || '[]') as State['areas'];
+           if (!areas.some((a) => a.tag === m.area)) {
+@@ -434,7 +448,7 @@ export class Store {
+         }
+       }
+     });
+-    return count;
++    return accepted;
+   }
+   mark(id: string, patch: { read?: boolean; starred?: boolean }): void {
+     const m = this.findMessage(id);
+diff --git a/src/main/index.ts b/src/main/index.ts
+index 50a6ac9e9a27c5c124360798f146fb815de8df78..66003aa2e98fd0c9ebe90becfd9a2173a04005e3 100644
+--- a/src/main/index.ts
++++ b/src/main/index.ts
+@@ -1,16 +1,35 @@
+-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
++import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell } from 'electron';
+ import fs from 'node:fs';
+ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { z } from 'zod';
+ import { Store, atomicWrite } from '../core/store.js';
+-import { composeSchema, draftSchema, profileSchema, type State } from '../core/model.js';
++import {
++  composeSchema,
++  draftSchema,
++  profileSchema,
++  notificationSettingsSchema,
++  type State,
++} from '../core/model.js';
++import { newMailNotice, notificationTarget } from '../core/notifications.js';
++import { DesktopNotifications } from './notifications.js';
+ import { exchange } from '../core/binkp.js';
+ import { unpackMail } from '../core/packet.js';
+ 
+ // Keep the original OS keyring identity and mailbox path across the public rename.
+ // Changing this would strand already-imported encrypted point credentials on Linux.
+ app.setName('retropost');
++if (process.platform === 'win32') {
++  // Match the existing installer identity, preserving mailbox/keyring compatibility.
++  app.setAppUserModelId(
++    app.isPackaged ? 'net.retrodigital.retropost' : 'net.retrodigital.retropost.development',
++  );
++  app.setToastActivatorCLSID(
++    app.isPackaged
++      ? '{A51D2906-5AC4-4F43-A2F3-8E2CDA12D580}'
++      : '{B4B0E872-2290-4AA2-91A1-19B9A1C1E835}',
++  );
++} else if (process.platform === 'linux') app.setDesktopName('packetlark.desktop');
+ 
+ // Chromium's Wayland surface backend cannot use Vulkan. Keep the native
+ // Wayland window and other GPU acceleration, and preserve caller-disabled features.
+@@ -26,6 +45,15 @@ if (
+ }
+ 
+ const here = path.dirname(fileURLToPath(import.meta.url));
++const notifications = new DesktopNotifications({
++  platform: process.platform,
++  supported: () => Notification.isSupported(),
++  create: (options) => new Notification(options),
++  open: openNotification,
++  icon: app.isPackaged
++    ? path.join(process.resourcesPath, 'notification-icon.png')
++    : path.join(app.getAppPath(), 'build/icon.png'),
++});
+ let win: BrowserWindow | null = null,
+   store: Store,
+   timer: ReturnType<typeof setInterval> | undefined;
+@@ -36,6 +64,32 @@ let syncing = false,
+ const controller = new AbortController();
+ const isAccountFile = (arg: string) => /\.(packetlark|retropost)$/i.test(arg);
+ let pendingImport = process.argv.find(isAccountFile);
++let pendingMessage: string | undefined;
++let lastNotification = { id: '', time: 0 };
++
++function openNotification(id: string) {
++  if (quitting) return;
++  // Windows can deliver both the live click event and the persistent activation callback.
++  if (id === lastNotification.id && Date.now() - lastNotification.time < 250) return;
++  lastNotification = { id, time: Date.now() };
++  if (!win || win.isDestroyed()) createWindow();
++  if (win!.isMinimized()) win!.restore();
++  win!.show();
++  win!.focus();
++  if (!id) return;
++  if (win!.webContents.isLoadingMainFrame()) pendingMessage = id;
++  else win!.webContents.send('notification:open', id);
++}
++
++function notifyReceived(ids: ReadonlySet<string>) {
++  if (!ids.size || quitting || !win || win.isDestroyed() || win.isFocused()) return;
++  try {
++    const notice = newMailNotice(ids, store.state());
++    if (notice) notifications.show(notice);
++  } catch {
++    // Notification service/keyring failures must not change transport success or retry behavior.
++  }
++}
+ const secureStorage = () =>
+   safeStorage.isEncryptionAvailable() &&
+   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
+@@ -103,6 +157,7 @@ async function sync() {
+   status = 'Connecting…';
+   emit();
+   let received = 0;
++  const newIds = new Set<string>();
+   try {
+     await exchange(
+       p,
+@@ -113,7 +168,9 @@ async function sync() {
+           emit();
+         },
+         async receive(file) {
+-          received += store.receive(unpackMail(file.bytes, p));
++          const saved = store.receiveNew(unpackMail(file.bytes, p));
++          received += saved.length;
++          for (const message of saved) newIds.add(message.id);
+           emit();
+         },
+         async sent(name) {
+@@ -132,6 +189,7 @@ async function sync() {
+   } finally {
+     syncing = false;
+     emit();
++    notifyReceived(newIds);
+   }
+ }
+ function register() {
+@@ -159,6 +217,7 @@ function register() {
+       syncing,
+       status: status || snapshot.status,
+       storageWarning: !secureStorage(),
++      notificationsSupported: notifications.supported(),
+     };
+   });
+   handle('import', async () => {
+@@ -170,6 +229,22 @@ function register() {
+     return result.canceled ? false : await importFile(result.filePaths[0]);
+   });
+   handle('sync', sync);
++  handle('notifications', (value) => {
++    store.setNotifications(notificationSettingsSchema.parse(value));
++    emit();
++  });
++  handle('testNotification', () => {
++    if (
++      !notifications.show({
++        title: 'PacketLark',
++        body: 'This is a test notification.',
++        messageId: '',
++      })
++    )
++      throw new Error(
++        'Your operating system notification service is unavailable. Check your desktop notification settings.',
++      );
++  });
+   handle('draft', (value) => {
+     const id = store.saveDraft(draftSchema.parse(value));
+     emit();
+@@ -275,6 +350,10 @@ function createWindow() {
+     win = null;
+   });
+   win.webContents.once('did-finish-load', () => {
++    if (pendingMessage !== undefined) {
++      win?.webContents.send('notification:open', pendingMessage);
++      pendingMessage = undefined;
++    }
+     if (pendingImport) {
+       const file = pendingImport;
+       pendingImport = undefined;
+@@ -308,10 +387,11 @@ else {
+       quitting = true;
+       controller.abort();
+       setTimeout(() => app.quit(), 250);
+-    }
++    } else quitting = true;
+   });
+   app.on('will-quit', () => {
+     if (timer) clearInterval(timer);
++    notifications.close();
+     store?.close();
+   });
+   void app
+@@ -338,6 +418,23 @@ else {
+       );
+       register();
+       createWindow();
++      if (process.platform === 'win32') {
++        try {
++          Notification.handleActivation((details) => {
++            if (details.type !== 'click') return;
++            const id = notificationTarget(details.arguments);
++            if (id || details.arguments === 'packetlark-test') {
++              try {
++                openNotification(id || '');
++              } catch {
++                /* The app may be closing. */
++              }
++            }
++          });
++        } catch {
++          /* Native activation support must not prevent mailbox startup. */
++        }
++      }
+       schedule();
+       // Open links only through a tightly scoped IPC endpoint, never via message HTML.
+       ipcMain.handle('external', async (event, value: unknown) => {
+diff --git a/src/main/notifications.ts b/src/main/notifications.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e63da3243bfd80b5f7ddeea858d9faa8ce17a325
+--- /dev/null
++++ b/src/main/notifications.ts
+@@ -0,0 +1,86 @@
++import type { NotificationConstructorOptions } from 'electron';
++import { notificationMarkup, windowsToast, type MailNotice } from '../core/notifications.js';
++
++export interface NativeNotice {
++  on(event: 'click' | 'close' | 'failed', listener: () => void): unknown;
++  show(): void;
++  close(): void;
++}
++
++/** Keep OS failures outside the mail transaction and retain live click handlers. */
++export class DesktopNotifications {
++  private active = new Set<NativeNotice>();
++  constructor(
++    private native: {
++      supported(): boolean;
++      create(options: NotificationConstructorOptions): NativeNotice;
++      open(messageId: string): void;
++      platform: NodeJS.Platform;
++      icon?: string;
++    },
++  ) {}
++  supported(): boolean {
++    try {
++      return this.native.supported();
++    } catch {
++      return false;
++    }
++  }
++  show(notice: MailNotice): boolean {
++    if (!this.supported()) return false;
++    let notification: NativeNotice | undefined;
++    try {
++      notification = this.native.create({
++        title: notice.title,
++        body: this.native.platform === 'linux' ? notificationMarkup(notice.body) : notice.body,
++        icon: this.native.icon,
++        ...(this.native.platform === 'win32'
++          ? {
++              groupId: 'packetlark-mail',
++              toastXml: windowsToast(notice),
++            }
++          : {}),
++      });
++      const current = notification;
++      const forget = () => {
++        this.active.delete(current);
++      };
++      current.on('click', () => {
++        try {
++          this.native.open(notice.messageId);
++        } catch {
++          /* The window may be closing. */
++        }
++        forget();
++      });
++      current.on('close', forget);
++      current.on('failed', forget);
++      this.active.add(current);
++      // Some notification daemons never emit close. Bound retained native handles.
++      while (this.active.size > 20) {
++        const oldest = this.active.values().next().value!;
++        this.active.delete(oldest);
++        try {
++          oldest.close();
++        } catch {
++          /* Notification cleanup must not affect mail. */
++        }
++      }
++      current.show();
++      return true;
++    } catch {
++      if (notification) this.active.delete(notification);
++      return false;
++    }
++  }
++  close(): void {
++    for (const notification of this.active) {
++      try {
++        notification.close();
++      } catch {
++        /* The OS service may already be gone. */
++      }
++    }
++    this.active.clear();
++  }
++}
+diff --git a/src/main/preload.cts b/src/main/preload.cts
+index d1ba06646d0af0b30226f3158f5852898eaeeb0d..e1e14e9aeb2addf44c52113b55f51bf5633a2966 100644
+--- a/src/main/preload.cts
++++ b/src/main/preload.cts
+@@ -24,6 +24,15 @@ const api: Api = {
+   areaCommand: (tag, subscribe) => call('area', tag, subscribe),
+   requestAreaList: () => call('areaList'),
+   backup: () => call('backup'),
++  setNotifications: (value) => call('notifications', value),
++  testNotification: () => call('testNotification'),
++  onNotification(cb) {
++    const listener = (_event: Electron.IpcRendererEvent, id: unknown) => {
++      if (typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)) cb(id);
++    };
++    ipcRenderer.on('notification:open', listener);
++    return () => ipcRenderer.removeListener('notification:open', listener);
++  },
+   onChanged(cb) {
+     const listener = (_event: Electron.IpcRendererEvent, update?: RuntimeUpdate) => cb(update);
+     ipcRenderer.on('changed', listener);
+diff --git a/src/renderer/app.ts b/src/renderer/app.ts
+index 5529f9b57c11dcf0ed44b7a7f0f17d1e6b90d519..7dd5f10b2e0c61ebb85de4b243a361099405d940 100644
+--- a/src/renderer/app.ts
++++ b/src/renderer/app.ts
+@@ -2,6 +2,7 @@ import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '..
+ import './style.css';
+ import { mailboxCounts, messageSort, reconcileChildren, sortMessages } from './mailbox.js';
+ import { visibleDiscussions } from '../core/areas.js';
++import { defaultNotifications } from '../core/notifications.js';
+ declare global {
+   interface Window {
+     packetlark: Api;
+@@ -33,6 +34,7 @@ let rowLimit = 200;
+ const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
+ let moreMessages: HTMLButtonElement | undefined;
+ let renderDiscussions: (() => void) | null = null;
++let pendingNotification: string | undefined;
+ const app = document.querySelector<HTMLDivElement>('#app')!;
+ function e<K extends keyof HTMLElementTagNameMap>(
+   tag: K,
+@@ -159,6 +161,21 @@ async function refresh() {
+   } finally {
+     refreshing = false;
+   }
++  if (pendingNotification !== undefined) {
++    const id = pendingNotification;
++    pendingNotification = undefined;
++    const message = state.messages.find((m) => m.id === id && m.folder === 'inbox' && !m.internal);
++    if (!message || (message.area && !state.areas.some((a) => a.tag === message.area))) {
++      notify('That message is no longer available in your Inbox.');
++      return;
++    }
++    folder = message.area ? `area:${message.area}` : 'inbox';
++    selection = message.id;
++    query = search.value = '';
++    unreadOnly = false;
++    render();
++    if (!message.read) void action(() => api.mark(message.id, { read: true }));
++  }
+ }
+ function renderRuntime() {
+   composeButton.disabled = !state.account;
+@@ -897,6 +914,7 @@ function accountDialog() {
+       e('p', '', 'Import the account file supplied by your provider.'),
+       button('Import account', () => void action(() => api.importAccount()), 'primary'),
+     );
++    notificationPreferences(body);
+     return;
+   }
+   for (const [label, value] of [
+@@ -921,6 +939,7 @@ function accountDialog() {
+     ),
+     button('Back up mailbox', () => void action(() => api.backup())),
+   );
++  notificationPreferences(body);
+   if (state.storageWarning)
+     body.append(
+       e(
+@@ -930,6 +949,82 @@ function accountDialog() {
+       ),
+     );
+ }
++function notificationPreferences(body: HTMLElement) {
++  const group = e('fieldset', 'notification-settings');
++  group.append(e('legend', '', 'Desktop notifications'));
++  const settings = state.notifications || defaultNotifications;
++  const controls = (['enabled', 'discussions', 'previews'] as const).map((key, i) => {
++    const label = e('label', 'notification-option');
++    const checkbox = e('input');
++    checkbox.type = 'checkbox';
++    checkbox.checked = settings[key];
++    label.append(
++      checkbox,
++      e(
++        'span',
++        '',
++        ['Enable desktop notifications', 'Include discussion posts', 'Show sender and subject'][i],
++      ),
++    );
++    group.append(label);
++    return checkbox;
++  });
++  const [enabled, discussions, previews] = controls;
++  const update = () => {
++    discussions.disabled = previews.disabled = !enabled.checked;
++  };
++  for (const control of controls)
++    control.addEventListener('change', () => {
++      const previous = state.notifications || defaultNotifications;
++      controls.forEach((checkbox) => {
++        checkbox.disabled = true;
++      });
++      void (async () => {
++        try {
++          await api.setNotifications({
++            enabled: enabled.checked,
++            discussions: discussions.checked,
++            previews: previews.checked,
++          });
++          await refresh();
++        } catch (error) {
++          [enabled.checked, discussions.checked, previews.checked] = [
++            previous.enabled,
++            previous.discussions,
++            previous.previews,
++          ];
++          notify(
++            error instanceof Error ? error.message : 'Could not save notification settings.',
++            true,
++          );
++        } finally {
++          enabled.disabled = false;
++          update();
++        }
++      })();
++    });
++  const test = button(
++    'Test notification',
++    () =>
++      void action(async () => {
++        await api.testNotification();
++        notify('Test notification requested. Check your desktop notifications.');
++      }),
++  );
++  test.disabled = state.notificationsSupported === false;
++  group.append(
++    test,
++    e(
++      'p',
++      'muted',
++      state.notificationsSupported === false
++        ? 'Your desktop notification service is unavailable. Check your operating system notification settings.'
++        : 'New mail alerts appear while PacketLark is open in the background. Your operating system controls sound and Do Not Disturb.',
++    ),
++  );
++  update();
++  body.append(group);
++}
+ function contactDialog(name = '', address = '') {
+   const { body, close } = dialog('Save contact');
+   const form = e('form');
+@@ -1167,6 +1262,10 @@ document.addEventListener('keydown', (event) => {
+   }
+ });
+ if (api) {
++  api.onNotification?.((id) => {
++    pendingNotification = id;
++    void refresh().catch((error) => notify(String(error), true));
++  });
+   api.onChanged((update?: RuntimeUpdate) => {
+     if (state && update && state.revision !== undefined && update.revision < state.revision) return;
+     if (state && update && !refreshing && state.revision === update.revision) {
+diff --git a/src/renderer/style.css b/src/renderer/style.css
+index 4c7da9120cb9fad160ad7b947a0639127ffeeb11..20b92db80063aeb9dd0f6ccdcdcf7fed62eb8af6 100644
+--- a/src/renderer/style.css
++++ b/src/renderer/style.css
+@@ -200,6 +200,29 @@ textarea:focus-visible {
+   padding: 5px 8px;
+   font-size: 11px;
+ }
++.notification-settings {
++  margin-top: 22px;
++  padding: 16px;
++  border: 1px solid var(--border);
++  border-radius: 6px;
++}
++.notification-settings legend {
++  padding: 0 6px;
++  font-weight: 650;
++}
++.notification-option {
++  display: flex;
++  min-height: 28px;
++  align-items: center;
++  gap: 9px;
++  margin-bottom: 12px;
++  cursor: pointer;
++}
++.notification-option input {
++  width: 18px;
++  height: 18px;
++  accent-color: var(--accent);
++}
+ .message-list {
+   overflow: auto;
+   flex: 1;
+diff --git a/tests/notifications.test.ts b/tests/notifications.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..800efb8242e4e42fa2fa51e5dc386f78fb172c57
+--- /dev/null
++++ b/tests/notifications.test.ts
+@@ -0,0 +1,281 @@
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { EventEmitter } from 'node:events';
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import type { NotificationConstructorOptions } from 'electron';
++import { Store } from '../src/core/store.js';
++import { buildPacket, parsePacket } from '../src/core/packet.js';
++import {
++  defaultNotifications,
++  newMailNotice,
++  notificationTarget,
++  windowsToast,
++} from '../src/core/notifications.js';
++import { DesktopNotifications, type NativeNotice } from '../src/main/notifications.js';
++import { compose, incomingPacket, profile } from './fixtures.js';
++import type { Message } from '../src/core/model.js';
++
++const dirs: string[] = [];
++async function open(file?: string) {
++  if (!file) {
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'packetlark-notifications-'));
++    dirs.push(dir);
++    file = path.join(dir, 'mailbox.sqlite');
++  }
++  return Store.open(
++    file,
++    path.resolve('node_modules/sql.js/dist/sql-wasm.wasm'),
++    (s) => s,
++    (s) => s,
++  );
++}
++const incoming = () => parsePacket(incomingPacket(), profile)[0];
++afterEach(() => {
++  vi.restoreAllMocks();
++  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
++});
++
++describe('durable new-mail notification eligibility', () => {
++  it('keeps preferences across restart, rejects invalid updates, and skips unchanged writes', async () => {
++    const store = await open();
++    expect(store.state().notifications).toEqual(defaultNotifications);
++    const revision = store.revision;
++    store.setNotifications(defaultNotifications);
++    expect(store.revision).toBe(revision);
++    const settings = { enabled: false, discussions: false, previews: false };
++    store.setNotifications(settings);
++    const saved = store.backup();
++    expect(() => store.setNotifications({ ...settings, enabled: 'yes' } as never)).toThrow();
++    expect(store.backup()).toEqual(saved);
++    const file = store.file;
++    store.close();
++    const again = await open(file);
++    expect(again.state().notifications).toEqual(settings);
++    again.close();
++  });
++  it('returns only freshly committed ordinary messages and excludes control replies and replays', async () => {
++    const store = await open();
++    store.install(profile);
++    const message = incoming();
++    const boss = {
++      ...profile,
++      name: 'SBBSecho',
++      address: profile.uplink.address,
++      uplink: { ...profile.uplink, address: profile.address },
++    };
++    const reply = parsePacket(
++      buildPacket(
++        boss,
++        {
++          ...compose,
++          to: profile.name,
++          toAddress: profile.address,
++          subject: 'List of Available Areas',
++          body: 'TECH Computers',
++        },
++        'notification control',
++      ),
++      profile,
++    )[0];
++    const accepted = store.receiveNew([message, { ...message, id: 'duplicate-id' }, reply]);
++    expect(accepted.map((m) => m.id)).toEqual([message.id]);
++    expect(store.state().discussions.entries[0].tag).toBe('TECH');
++    expect(store.receiveNew([message, reply])).toEqual([]);
++    const file = store.file;
++    store.close();
++    const again = await open(file);
++    const ids = new Set(again.receiveNew([message, reply]).map((m) => m.id));
++    expect(newMailNotice(ids, again.state())).toBeNull();
++    again.trashMessage(message.id);
++    again.deleteMessage(message.id);
++    expect(again.receiveNew([message])).toEqual([]);
++    again.close();
++  });
++  it('does not return notification candidates when the mailbox transaction fails', async () => {
++    const store = await open();
++    store.install(profile);
++    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
++      throw new Error('Disk unavailable');
++    });
++    expect(() => store.receiveNew([incoming()])).toThrow('Disk unavailable');
++    expect(store.state().messages).toEqual([]);
++    store.close();
++  });
++  it('batches eligible unread mail and excludes hidden ADM areas, read mail, sent mail and internal records', async () => {
++    const store = await open();
++    store.install({
++      ...profile,
++      areas: [
++        { tag: 'TEST', name: 'Test discussion' },
++        { tag: 'STAFF', name: 'ADM private' },
++      ],
++    });
++    const base = incoming();
++    const messages: Message[] = [
++      {
++        ...base,
++        id: 'direct',
++        msgid: 'direct',
++        date: '2026-10-15T00:00:00+03:00',
++        from: 'Earlier person',
++      },
++      {
++        ...base,
++        id: 'public',
++        msgid: 'public',
++        area: 'TEST',
++        date: '2026-10-14T22:00:00Z',
++        from: 'Later person',
++        subject: 'Latest public post',
++      },
++      { ...base, id: 'hidden', msgid: 'hidden', area: 'STAFF', subject: 'Never preview ADM' },
++      { ...base, id: 'read', msgid: 'read', read: true },
++      { ...base, id: 'sent', msgid: 'sent', folder: 'sent' },
++      { ...base, id: 'internal', msgid: 'internal', internal: true },
++    ];
++    const ids = new Set(store.receiveNew(messages).map((m) => m.id));
++    const notice = newMailNotice(ids, store.state())!;
++    expect(notice.title).toContain('2 new messages');
++    expect(notice.body).toContain('1 direct message · 1 discussion post');
++    expect(notice.body).toContain('Later person');
++    expect(notice.body).not.toContain(base.body);
++    expect(notice.messageId).toBe('public');
++    store.setNotifications({ ...defaultNotifications, discussions: false, previews: false });
++    expect(newMailNotice(ids, store.state())).toMatchObject({
++      body: '1 direct message',
++      messageId: 'direct',
++    });
++    store.mark('direct', { read: true });
++    expect(newMailNotice(ids, store.state())).toBeNull();
++    store.setNotifications({ ...defaultNotifications, enabled: false });
++    expect(newMailNotice(ids, store.state())).toBeNull();
++    store.close();
++  });
++  it('sanitizes preview text and escapes the Windows toast XML and launch data', async () => {
++    const store = await open();
++    store.install(profile);
++    const message = {
++      ...incoming(),
++      from: '<sender>&\u202eevil\nname',
++      subject: '<script>"&\'\nTitle',
++    };
++    const ids = new Set(store.receiveNew([message]).map((m) => m.id));
++    const notice = newMailNotice(ids, store.state())!;
++    expect(notice.body).not.toContain('\u202e');
++    const xml = windowsToast(notice);
++    expect(xml).toContain('&lt;script&gt;&quot;&amp;&apos; Title');
++    expect(xml).not.toContain('<script>');
++    expect(xml).toContain(`launch="packetlark-message:${message.id}"`);
++    expect(notificationTarget(`packetlark-message:${message.id}`)).toBe(message.id);
++    for (const value of [
++      'https://example.invalid',
++      'file:///etc/passwd',
++      'packetlark-message:../mail',
++      'packetlark-message:"bad',
++      `packetlark-message:${'a'.repeat(129)}`,
++    ])
++      expect(notificationTarget(value)).toBeNull();
++    store.close();
++  });
++});
++
++class FakeNotice extends EventEmitter implements NativeNotice {
++  shown = 0;
++  closed = 0;
++  show() {
++    this.shown++;
++  }
++  close() {
++    this.closed++;
++    this.emit('close');
++  }
++}
++function native(platform: 'linux' | 'win32' = 'linux') {
++  const created: { options: NotificationConstructorOptions; handle: FakeNotice }[] = [];
++  const deps = {
++    platform,
++    icon: '/test/icon.png',
++    supported: vi.fn(() => true),
++    open: vi.fn(),
++    create: vi.fn((options: NotificationConstructorOptions) => {
++      const handle = new FakeNotice();
++      created.push({ options, handle });
++      return handle;
++    }),
++  };
++  return { deps, created, service: new DesktopNotifications(deps) };
++}
++describe('native desktop notification adapter', () => {
++  it('renders sender/subject markup literally on Linux and contains a native show failure', () => {
++    const { service, deps, created } = native();
++    service.show({
++      title: 'PacketLark',
++      body: '<img src="https://example.invalid"> & private',
++      messageId: 'message-1',
++    });
++    expect(created[0].options.body).toBe(
++      '&lt;img src=&quot;https://example.invalid&quot;&gt; &amp; private',
++    );
++    deps.create.mockImplementationOnce(() => {
++      const handle = new FakeNotice();
++      handle.show = () => {
++        throw new Error('Daemon gone');
++      };
++      return handle;
++    });
++    expect(service.show({ title: 'PacketLark', body: 'New message', messageId: 'message-2' })).toBe(
++      false,
++    );
++    service.close();
++  });
++  for (const platform of ['linux', 'win32'] as const)
++    it(`uses the ${platform} native API and handles a message click`, () => {
++      const { service, deps, created } = native(platform);
++      expect(
++        service.show({ title: 'PacketLark', body: 'New message', messageId: 'message-1' }),
++      ).toBe(true);
++      expect(created[0].handle.shown).toBe(1);
++      expect(created[0].options.icon).toBe('/test/icon.png');
++      if (platform === 'win32')
++        expect(created[0].options.toastXml).toContain('packetlark-message:message-1');
++      else expect(created[0].options.toastXml).toBeUndefined();
++      created[0].handle.emit('click');
++      expect(deps.open).toHaveBeenCalledWith('message-1');
++      service.close();
++    });
++  it('contains unavailable services, failed native calls, and stale-window click errors', () => {
++    const { service, deps, created } = native();
++    const notice = { title: 'PacketLark', body: 'New message', messageId: 'message-1' };
++    deps.supported.mockReturnValueOnce(false);
++    expect(service.show(notice)).toBe(false);
++    expect(deps.create).not.toHaveBeenCalled();
++    deps.supported.mockImplementationOnce(() => {
++      throw new Error('No service');
++    });
++    expect(service.show(notice)).toBe(false);
++    deps.create.mockImplementationOnce(() => {
++      throw new Error('Native failure');
++    });
++    expect(service.show(notice)).toBe(false);
++    service.show(notice);
++    deps.open.mockImplementationOnce(() => {
++      throw new Error('Window gone');
++    });
++    expect(() => created[0].handle.emit('click')).not.toThrow();
++    service.close();
++  });
++  it('bounds retained handles and releases failed, dismissed and shutdown notifications', () => {
++    const { service, created } = native();
++    for (let i = 0; i < 22; i++)
++      service.show({ title: 'PacketLark', body: 'New mail', messageId: String(i) });
++    expect(created[0].handle.closed).toBe(1);
++    expect(created[1].handle.closed).toBe(1);
++    created[2].handle.emit('failed');
++    created[3].handle.emit('close');
++    service.close();
++    expect(created[2].handle.closed).toBe(0);
++    expect(created[3].handle.closed).toBe(0);
++    expect(created.slice(4).every((item) => item.handle.closed === 1)).toBe(true);
++  });
++});
+diff --git a/tests/ui/mailbox.spec.ts b/tests/ui/mailbox.spec.ts
+index 0680af8fd01b0c3eba176ecec8e0190ce4f8cd33..0c39cbca2bddc3ed39e8b9d2d9dd021707689a4f 100644
+--- a/tests/ui/mailbox.spec.ts
++++ b/tests/ui/mailbox.spec.ts
+@@ -2,7 +2,13 @@ import { test as base, expect, _electron, type Page, type Locator } from '@playw
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+-import type { Compose, Message, RuntimeUpdate, State } from '../../src/core/model.js';
++import type {
++  Compose,
++  Message,
++  NotificationSettings,
++  RuntimeUpdate,
++  State,
++} from '../../src/core/model.js';
+ 
+ // Exercise the real Electron renderer against a mocked application API, without a downloaded browser.
+ // Playwright requires the destructuring signature even when no built-in fixtures are needed.
+@@ -50,6 +56,8 @@ declare global {
+       runtime(status: string, syncing?: boolean): void;
+       touch(): void;
+       replaceMessage(message: Message): void;
++      openNotification(messageId: string): void;
++      notificationTests(): number;
+     };
+   }
+ }
+@@ -105,6 +113,8 @@ async function setup(
+       let listSent = false;
+       let stateReads = 0;
+       const changed: ((update?: RuntimeUpdate) => void)[] = [];
++      const notifications: ((id: string) => void)[] = [];
++      let notificationTests = 0;
+       const emit = (dataChanged = true) => {
+         if (dataChanged) data.revision = (data.revision || 0) + 1;
+         changed.forEach((cb) =>
+@@ -112,6 +122,10 @@ async function setup(
+         );
+       };
+       window.packetlarkTest = {
++        openNotification: (id) => {
++          notifications.forEach((callback) => callback(id));
++        },
++        notificationTests: () => notificationTests,
+         stateReads: () => stateReads,
+         runtime: (status, syncing = false) => {
+           data.status = status;
+@@ -292,6 +306,20 @@ async function setup(
+             emit();
+           },
+           backup: async () => {},
++          setNotifications: async (value: NotificationSettings) => {
++            data.notifications = structuredClone(value);
++            emit();
++          },
++          testNotification: async () => {
++            notificationTests++;
++          },
++          onNotification: (callback: (id: string) => void) => {
++            notifications.push(callback);
++            return () => {
++              const i = notifications.indexOf(callback);
++              if (i >= 0) notifications.splice(i, 1);
++            };
++          },
+           onChanged: (cb: (update?: RuntimeUpdate) => void) => {
+             changed.push(cb);
+             return () => {};
+@@ -971,3 +999,95 @@ test('hides cached ADM descriptions from the sidebar, composer, search and discu
+   await page.reload();
+   await expect(page.getByRole('button', { name: 'Test discussion', exact: true })).toHaveCount(0);
+ });
++
++test('saves notification choices and can request a native test notification', async ({ page }) => {
++  await setup(page);
++  await click(page.getByRole('button', { name: 'Account', exact: true }));
++  const account = page.getByRole('dialog', { name: 'Your account' });
++  const enabled = account.getByRole('checkbox', {
++    name: 'Enable desktop notifications',
++    exact: true,
++  });
++  const discussions = account.getByRole('checkbox', {
++    name: 'Include discussion posts',
++    exact: true,
++  });
++  const previews = account.getByRole('checkbox', { name: 'Show sender and subject', exact: true });
++  await expect(enabled).toBeChecked();
++  await expect(discussions).toBeChecked();
++  await expect(previews).toBeChecked();
++  // DOM events also work in the restricted offscreen host; native checkboxes work normally in CI.
++  await discussions.evaluate((box: HTMLInputElement) => {
++    box.checked = false;
++    box.dispatchEvent(new Event('change', { bubbles: true }));
++  });
++  await expect(enabled).toBeEnabled();
++  await previews.evaluate((box: HTMLInputElement) => {
++    box.checked = false;
++    box.dispatchEvent(new Event('change', { bubbles: true }));
++  });
++  await expect(enabled).toBeEnabled();
++  await click(account.getByRole('button', { name: 'Test notification', exact: true }));
++  await expect.poll(() => page.evaluate(() => window.packetlarkTest.notificationTests())).toBe(1);
++  await enabled.evaluate((box: HTMLInputElement) => {
++    box.checked = false;
++    box.dispatchEvent(new Event('change', { bubbles: true }));
++  });
++  await expect(discussions).toBeDisabled();
++  await expect(previews).toBeDisabled();
++  await click(account.getByRole('button', { name: 'Close', exact: true }));
++  await click(page.getByRole('button', { name: 'Account', exact: true }));
++  await expect(enabled).not.toBeChecked();
++  await expect(previews).not.toBeChecked();
++  await expect(discussions).not.toBeChecked();
++});
++
++test('notification clicks open the matching discussion and clear filters without losing sort order', async ({
++  page,
++}) => {
++  await setup(page);
++  await page.getByRole('combobox', { name: 'Sort messages', exact: true }).selectOption('oldest');
++  await page.getByRole('searchbox', { name: 'Search messages', exact: true }).fill('no match');
++  await click(page.getByRole('button', { name: 'Unread only', exact: true }));
++  await page.evaluate(() => window.packetlarkTest.openNotification('public'));
++  await expect(page.locator('.reader-heading h1')).toHaveText('A community discussion');
++  await expect(page.locator('.body-text')).toHaveText('A public post');
++  await expect(page.getByRole('searchbox', { name: 'Search messages', exact: true })).toHaveValue(
++    '',
++  );
++  await expect(page.getByRole('combobox', { name: 'Sort messages', exact: true })).toHaveValue(
++    'oldest',
++  );
++  await expect(page.getByRole('button', { name: 'Unread only', exact: true })).toHaveAttribute(
++    'aria-pressed',
++    'false',
++  );
++  await expect(page.locator('.message-row')).toHaveClass(/selected/);
++  await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
++});
++
++test('notification clicks preserve an open draft and handle a missing message safely', async ({
++  page,
++}) => {
++  await setup(page);
++  await click(page.getByRole('button', { name: '＋ New message' }));
++  const draft = page.getByRole('dialog');
++  await draft
++    .getByRole('textbox', { name: 'Message', exact: true })
++    .fill('Keep this unfinished draft');
++  await page.evaluate(() => window.packetlarkTest.openNotification('public'));
++  await expect(draft.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
++    'Keep this unfinished draft',
++  );
++  await click(draft.getByRole('button', { name: 'Save & close', exact: true }).last());
++  await expect(draft).toHaveCount(0);
++  await expect(page.locator('.reader-heading h1')).toHaveText('A community discussion');
++  await page.evaluate(() => window.packetlarkTest.openNotification('deleted-message'));
++  await expect(page.locator('#toast')).toContainText('no longer available');
++  await expect(page.locator('.reader-heading h1')).toHaveText('A community discussion');
++  await click(page.getByRole('button', { name: /^Drafts/ }));
++  await click(page.locator('.message-row'));
++  await expect(
++    page.getByRole('dialog').getByRole('textbox', { name: 'Message', exact: true }),
++  ).toHaveValue('Keep this unfinished draft');
++});
+diff --git a/tools/smoke-desktop.mjs b/tools/smoke-desktop.mjs
+index 90b3c2cfa36af541619293e5ee26b78d2d4414ea..79db18bdb90f3bba7f5026e4dbb5d56ae6a36c19 100644
+--- a/tools/smoke-desktop.mjs
++++ b/tools/smoke-desktop.mjs
+@@ -22,6 +22,32 @@ try {
+   assert.deepEqual(security, { sandbox: true, nodeIntegration: false, contextIsolation: true });
+   const state = await window.evaluate(() => window.packetlark.state());
+   assert.equal(state.account, null);
++  assert.deepEqual(state.notifications, { enabled: true, discussions: true, previews: true });
++  assert.equal(typeof state.notificationsSupported, 'boolean');
++  const preferences = await window.evaluate(async () => {
++    await window.packetlark.setNotifications({
++      enabled: false,
++      discussions: false,
++      previews: false,
++    });
++    const saved = (await window.packetlark.state()).notifications;
++    let rejected = false;
++    try {
++      await window.packetlark.setNotifications({ enabled: 'invalid' });
++    } catch {
++      rejected = true;
++    }
++    return {
++      saved,
++      rejected,
++      listener: typeof window.packetlark.onNotification,
++      test: typeof window.packetlark.testNotification,
++    };
++  });
++  assert.deepEqual(preferences.saved, { enabled: false, discussions: false, previews: false });
++  assert.equal(preferences.rejected, true);
++  assert.equal(preferences.listener, 'function');
++  assert.equal(preferences.test, 'function');
+   const update = await window.evaluate(async () => {
+     const changed = new Promise((resolve) => {
+       const off = window.packetlark.onChanged((value) => {
+@@ -35,10 +61,30 @@ try {
+   assert.ok(update.state.revision > state.revision);
+   assert.equal(update.event.revision, update.state.revision);
+   assert.equal(update.state.contacts[0].name, 'IPC smoke contact');
++  await window.evaluate(() => {
++    window.notificationSmoke = [];
++    window.stopNotificationSmoke = window.packetlark.onNotification((...args) => {
++      window.notificationSmoke.push(args);
++    });
++  });
++  await desktop.evaluate(({ BrowserWindow }) => {
++    const contents = BrowserWindow.getAllWindows()[0].webContents;
++    contents.send('notification:open', { privileged: 'not a message ID' });
++    contents.send('notification:open', '../invalid');
++    contents.send('notification:open', 'missing-message');
++  });
++  await window
++    .getByText('That message is no longer available in your Inbox.', { exact: true })
++    .waitFor();
++  const clicks = await window.evaluate(() => {
++    window.stopNotificationSmoke();
++    return window.notificationSmoke;
++  });
++  assert.deepEqual(clicks, [['missing-message']]);
+   assert.equal(await window.evaluate(() => typeof window.require), 'undefined');
+   await window.screenshot({ path: 'test-results/desktop-welcome.png' });
+   console.log(
+-    'Desktop smoke passed: preload IPC, revision notifications, mailbox refresh, and renderer isolation.',
++    'Desktop smoke passed: preload IPC, native-notification preferences, revision notifications, mailbox refresh, and renderer isolation.',
+   );
+ } finally {
+   await desktop?.close();

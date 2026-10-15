@@ -200,6 +200,29 @@ textarea:focus-visible {
   padding: 5px 8px;
   font-size: 11px;
 }
+.notification-settings {
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.notification-settings legend {
+  padding: 0 6px;
+  font-weight: 650;
+}
+.notification-option {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.notification-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
 .message-list {
   overflow: auto;
   flex: 1;

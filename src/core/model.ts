@@ -177,6 +177,14 @@ export type DiscussionDirectory = {
   updatedAt: string | null;
   error: string;
 };
+export const notificationSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    discussions: z.boolean().default(true),
+    previews: z.boolean().default(true),
+  })
+  .strict();
+export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
 export type State = {
   revision?: number;
   account: PublicAccount | null;
@@ -188,6 +196,8 @@ export type State = {
   status: string;
   lastSync: string | null;
   storageWarning: boolean;
+  notifications?: NotificationSettings;
+  notificationsSupported?: boolean;
 };
 export type RuntimeUpdate = { revision: number; syncing: boolean; status: string };
 export type Api = {
@@ -205,5 +215,8 @@ export type Api = {
   areaCommand(tag: string, subscribe: boolean): Promise<void>;
   requestAreaList(): Promise<void>;
   backup(): Promise<void>;
+  setNotifications(value: NotificationSettings): Promise<void>;
+  testNotification(): Promise<void>;
+  onNotification(cb: (messageId: string) => void): () => void;
   onChanged(cb: (update?: RuntimeUpdate) => void): () => void;
 };

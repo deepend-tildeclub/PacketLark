@@ -1,16 +1,35 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { Store, atomicWrite } from '../core/store.js';
-import { composeSchema, draftSchema, profileSchema, type State } from '../core/model.js';
+import {
+  composeSchema,
+  draftSchema,
+  profileSchema,
+  notificationSettingsSchema,
+  type State,
+} from '../core/model.js';
+import { newMailNotice, notificationTarget } from '../core/notifications.js';
+import { DesktopNotifications } from './notifications.js';
 import { exchange } from '../core/binkp.js';
 import { unpackMail } from '../core/packet.js';
 
 // Keep the original OS keyring identity and mailbox path across the public rename.
 // Changing this would strand already-imported encrypted point credentials on Linux.
 app.setName('retropost');
+if (process.platform === 'win32') {
+  // Match the existing installer identity, preserving mailbox/keyring compatibility.
+  app.setAppUserModelId(
+    app.isPackaged ? 'net.retrodigital.retropost' : 'net.retrodigital.retropost.development',
+  );
+  app.setToastActivatorCLSID(
+    app.isPackaged
+      ? '{A51D2906-5AC4-4F43-A2F3-8E2CDA12D580}'
+      : '{B4B0E872-2290-4AA2-91A1-19B9A1C1E835}',
+  );
+} else if (process.platform === 'linux') app.setDesktopName('packetlark.desktop');
 
 // Chromium's Wayland surface backend cannot use Vulkan. Keep the native
 // Wayland window and other GPU acceleration, and preserve caller-disabled features.
@@ -26,6 +45,15 @@ if (
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const notifications = new DesktopNotifications({
+  platform: process.platform,
+  supported: () => Notification.isSupported(),
+  create: (options) => new Notification(options),
+  open: openNotification,
+  icon: app.isPackaged
+    ? path.join(process.resourcesPath, 'notification-icon.png')
+    : path.join(app.getAppPath(), 'build/icon.png'),
+});
 let win: BrowserWindow | null = null,
   store: Store,
   timer: ReturnType<typeof setInterval> | undefined;
@@ -36,6 +64,32 @@ let syncing = false,
 const controller = new AbortController();
 const isAccountFile = (arg: string) => /\.(packetlark|retropost)$/i.test(arg);
 let pendingImport = process.argv.find(isAccountFile);
+let pendingMessage: string | undefined;
+let lastNotification = { id: '', time: 0 };
+
+function openNotification(id: string) {
+  if (quitting) return;
+  // Windows can deliver both the live click event and the persistent activation callback.
+  if (id === lastNotification.id && Date.now() - lastNotification.time < 250) return;
+  lastNotification = { id, time: Date.now() };
+  if (!win || win.isDestroyed()) createWindow();
+  if (win!.isMinimized()) win!.restore();
+  win!.show();
+  win!.focus();
+  if (!id) return;
+  if (win!.webContents.isLoadingMainFrame()) pendingMessage = id;
+  else win!.webContents.send('notification:open', id);
+}
+
+function notifyReceived(ids: ReadonlySet<string>) {
+  if (!ids.size || quitting || !win || win.isDestroyed() || win.isFocused()) return;
+  try {
+    const notice = newMailNotice(ids, store.state());
+    if (notice) notifications.show(notice);
+  } catch {
+    // Notification service/keyring failures must not change transport success or retry behavior.
+  }
+}
 const secureStorage = () =>
   safeStorage.isEncryptionAvailable() &&
   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
@@ -103,6 +157,7 @@ async function sync() {
   status = 'Connecting…';
   emit();
   let received = 0;
+  const newIds = new Set<string>();
   try {
     await exchange(
       p,
@@ -113,7 +168,9 @@ async function sync() {
           emit();
         },
         async receive(file) {
-          received += store.receive(unpackMail(file.bytes, p));
+          const saved = store.receiveNew(unpackMail(file.bytes, p));
+          received += saved.length;
+          for (const message of saved) newIds.add(message.id);
           emit();
         },
         async sent(name) {
@@ -132,6 +189,7 @@ async function sync() {
   } finally {
     syncing = false;
     emit();
+    notifyReceived(newIds);
   }
 }
 function register() {
@@ -159,6 +217,7 @@ function register() {
       syncing,
       status: status || snapshot.status,
       storageWarning: !secureStorage(),
+      notificationsSupported: notifications.supported(),
     };
   });
   handle('import', async () => {
@@ -170,6 +229,22 @@ function register() {
     return result.canceled ? false : await importFile(result.filePaths[0]);
   });
   handle('sync', sync);
+  handle('notifications', (value) => {
+    store.setNotifications(notificationSettingsSchema.parse(value));
+    emit();
+  });
+  handle('testNotification', () => {
+    if (
+      !notifications.show({
+        title: 'PacketLark',
+        body: 'This is a test notification.',
+        messageId: '',
+      })
+    )
+      throw new Error(
+        'Your operating system notification service is unavailable. Check your desktop notification settings.',
+      );
+  });
   handle('draft', (value) => {
     const id = store.saveDraft(draftSchema.parse(value));
     emit();
@@ -275,6 +350,10 @@ function createWindow() {
     win = null;
   });
   win.webContents.once('did-finish-load', () => {
+    if (pendingMessage !== undefined) {
+      win?.webContents.send('notification:open', pendingMessage);
+      pendingMessage = undefined;
+    }
     if (pendingImport) {
       const file = pendingImport;
       pendingImport = undefined;
@@ -308,10 +387,11 @@ else {
       quitting = true;
       controller.abort();
       setTimeout(() => app.quit(), 250);
-    }
+    } else quitting = true;
   });
   app.on('will-quit', () => {
     if (timer) clearInterval(timer);
+    notifications.close();
     store?.close();
   });
   void app
@@ -338,6 +418,23 @@ else {
       );
       register();
       createWindow();
+      if (process.platform === 'win32') {
+        try {
+          Notification.handleActivation((details) => {
+            if (details.type !== 'click') return;
+            const id = notificationTarget(details.arguments);
+            if (id || details.arguments === 'packetlark-test') {
+              try {
+                openNotification(id || '');
+              } catch {
+                /* The app may be closing. */
+              }
+            }
+          });
+        } catch {
+          /* Native activation support must not prevent mailbox startup. */
+        }
+      }
       schedule();
       // Open links only through a tightly scoped IPC endpoint, never via message HTML.
       ipcMain.handle('external', async (event, value: unknown) => {

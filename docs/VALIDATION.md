@@ -1,5 +1,33 @@
 # 0.1.0 validation record
 
+## Native desktop notifications
+
+Based on PacketLark `main` commit `99b719d`. TypeScript, lint/format checks,
+the application build, 84 core tests, 28 Electron renderer tests in headless
+DOM mode, and 24 provisioning tests pass. The production main/preload IPC smoke
+checks persisted notification choices, invalid-setting rejection, the isolated
+notification-click bridge, existing revision updates, and renderer sandboxing.
+Its external local wrapper only bypasses this restricted host's single-instance
+lock; no production test bypass is shipped.
+
+A clean locked dependency install and Linux `dist:dir` package build also pass.
+The produced ASAR contains both notification modules and the runtime dependency
+tree; the external notification icon exactly matches the source icon.
+
+Tests cover committed receipt candidates, duplicate/control-message exclusion,
+failed transaction rollback, read/ADM filtering, grouping, privacy settings,
+Windows toast XML/activation validation, Linux markup escaping, unsupported and
+failed native APIs, bounded notification handles, saved preferences, click
+navigation, stale targets, and preserving open drafts. Platform adapters are
+tested with native API fakes; these tests do not claim actual OS popup display.
+
+The unchanged Windows/Linux workflow runs the added unit/UI tests, the expanded
+production IPC smoke, and packaging checks. The icon is included as a package
+resource. There are no dependency changes or mailbox-schema migrations. Actual
+Windows/Linux banners, OS Do Not Disturb behavior, and persisted Windows Action
+Center activation still need acceptance testing on the target desktops using
+Account's Test notification and a background incoming-mail exchange.
+
 ## Live point provisioning and administrative discussion filtering
 
 Based on PacketLark `main` commit `e912dd4`. TypeScript, ESLint, Prettier,
