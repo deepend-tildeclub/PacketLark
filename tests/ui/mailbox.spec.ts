@@ -106,7 +106,15 @@ async function setup(page: Page, account = true, directory = state.discussions) 
       });
       Object.defineProperty(window, 'packetlark', {
         value: {
-          state: async () => structuredClone(data),
+          state: async () =>
+            structuredClone({
+              ...data,
+              messages: data.messages.filter((m) => !m.internal),
+              discussions: {
+                ...data.discussions,
+                queued: data.messages.filter((m) => m.folder === 'outbox').map((m) => m.id),
+              },
+            }),
           importAccount: async () => true,
           sync: async () => {
             if (data.discussions.requestId) {
@@ -170,6 +178,23 @@ async function setup(page: Page, account = true, directory = state.discussions) 
             data.messages = data.messages.filter((m) => m.id !== id);
             emit();
           },
+          trashMessage: async (id: string) => {
+            const m = data.messages.find((m) => m.id === id)!;
+            if (m.folder === 'trash') return;
+            m.trash = { folder: m.folder, deletedAt: new Date().toISOString() };
+            m.folder = 'trash';
+            emit();
+          },
+          restoreMessage: async (id: string) => {
+            const m = data.messages.find((m) => m.id === id)!;
+            m.folder = m.trash!.folder === 'outbox' ? 'drafts' : m.trash!.folder;
+            delete m.trash;
+            emit();
+          },
+          deleteMessage: async (id: string) => {
+            data.messages = data.messages.filter((m) => m.id !== id);
+            emit();
+          },
           contact: async (name: string, address: string) => {
             data.contacts.push({ name, address });
             emit();
@@ -191,6 +216,7 @@ async function setup(page: Page, account = true, directory = state.discussions) 
                 'outbox',
               ),
             );
+            data.messages.find((m) => m.id === id)!.internal = true;
             emit();
           },
           areaCommand: async (tag: string, join: boolean) => {
@@ -222,6 +248,7 @@ async function setup(page: Page, account = true, directory = state.discussions) 
                 'outbox',
               ),
             );
+            data.messages.find((m) => m.id === id)!.internal = true;
             emit();
           },
           backup: async () => {},
@@ -363,4 +390,99 @@ test('browses a large cached directory offline and paginates without losing sear
   await browser.getByLabel('Search discussions').fill('AREA_249');
   await expect(browser.locator('.discussion-row')).toHaveCount(1);
   await expect(browser.locator('.discussion-row')).toContainText('Discussion 249');
+});
+
+test('deletes incoming mail to Trash, removes it from Starred, and restores it', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.locator('.message-row').first());
+  await click(page.getByRole('button', { name: '☆ Star', exact: true }));
+  await click(page.getByRole('button', { name: 'Delete', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(0);
+  await click(page.getByRole('button', { name: /^Starred/ }));
+  await expect(page.locator('.message-row')).toHaveCount(0);
+  await click(page.getByRole('button', { name: /^Trash/ }));
+  await click(page.locator('.message-row'));
+  await expect(page.getByRole('button', { name: 'Reply', exact: true })).toHaveCount(0);
+  await click(page.getByRole('button', { name: 'Restore', exact: true }));
+  await click(page.getByRole('button', { name: /^Inbox/ }));
+  await expect(page.locator('.message-row')).toContainText('Welcome to PacketLark');
+});
+
+test('requires confirmation for permanent deletion and lets the user cancel', async ({ page }) => {
+  await setup(page);
+  await click(page.locator('.message-row').first());
+  await click(page.getByRole('button', { name: 'Delete', exact: true }));
+  await click(page.getByRole('button', { name: /^Trash/ }));
+  await click(page.locator('.message-row'));
+  await click(page.getByRole('button', { name: 'Delete permanently', exact: true }));
+  const confirmation = page.getByRole('dialog', { name: 'Delete message permanently?' });
+  await click(confirmation.getByRole('button', { name: 'Cancel', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await click(page.getByRole('button', { name: 'Delete permanently', exact: true }));
+  await click(confirmation.getByRole('button', { name: 'Delete permanently', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(0);
+  await expect(confirmation).toHaveCount(0);
+});
+
+test('deletes and restores an incomplete draft from inside the composer', async ({ page }) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ New message' }));
+  await page
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('Keep this unfinished draft');
+  await click(page.getByRole('dialog').getByRole('button', { name: 'Delete draft', exact: true }));
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await click(page.getByRole('button', { name: /^Trash/ }));
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.body-text')).toContainText('Keep this unfinished draft');
+  await click(page.getByRole('button', { name: 'Restore', exact: true }));
+  await click(page.getByRole('button', { name: /^Drafts/ }));
+  await click(page.locator('.message-row'));
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Keep this unfinished draft',
+  );
+});
+
+test('cancels queued mail and restores it as a draft without automatically sending', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ New message' }));
+  await page.getByLabel('Recipient name').fill('Friend');
+  await page.getByRole('textbox', { name: 'FidoNet address' }).fill('1:123/456');
+  await page.getByRole('textbox', { name: 'Subject', exact: true }).fill('Cancel this send');
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep as a draft');
+  await click(page.getByRole('button', { name: 'Queue message' }));
+  await click(page.getByRole('button', { name: /^Outbox/ }));
+  await click(page.locator('.message-row'));
+  await click(page.getByRole('button', { name: 'Delete', exact: true }));
+  await click(page.getByRole('button', { name: /^Trash/ }));
+  await click(page.locator('.message-row'));
+  await click(page.getByRole('button', { name: 'Restore', exact: true }));
+  await click(page.getByRole('button', { name: /^Outbox/ }));
+  await expect(page.locator('.message-row')).toHaveCount(0);
+  await click(page.getByRole('button', { name: /^Drafts/ }));
+  await expect(page.locator('.message-row')).toContainText('Cancel this send');
+});
+
+test('keeps management traffic out of Inbox, Outbox, Sent and Trash while subscriptions work', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ Manage discussions' }));
+  const browser = page.getByRole('dialog');
+  await click(browser.getByRole('button', { name: 'Get available discussions' }));
+  await click(browser.getByRole('button', { name: 'Check for replies' }));
+  await click(browser.getByRole('button', { name: 'Join TECH', exact: true }));
+  await expect(browser.getByText('Join awaiting confirmation', { exact: true })).toBeVisible();
+  await click(browser.getByRole('button', { name: 'Check for replies' }));
+  await expect(browser.getByRole('button', { name: 'Leave TECH', exact: true })).toBeVisible();
+  await click(browser.getByRole('button', { name: 'Close', exact: true }));
+  for (const name of ['Inbox', 'Outbox', 'Sent', 'Trash']) {
+    await click(page.getByRole('button', { name: new RegExp(`^${name}`) }));
+    await expect(page.locator('.message-row').filter({ hasText: 'AreaFix' })).toHaveCount(0);
+    await expect(page.locator('.message-row').filter({ hasText: '%LIST' })).toHaveCount(0);
+  }
 });

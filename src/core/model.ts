@@ -143,7 +143,9 @@ export type Message = {
   raw: string;
   area: string;
   date: string;
-  folder: 'inbox' | 'sent' | 'outbox' | 'drafts';
+  folder: 'inbox' | 'sent' | 'outbox' | 'drafts' | 'trash';
+  trash?: { folder: 'inbox' | 'sent' | 'outbox' | 'drafts'; deletedAt: string };
+  internal?: boolean;
   read: boolean;
   starred: boolean;
   error: string;
@@ -168,6 +170,7 @@ export type Discussion = {
   error: string;
 };
 export type DiscussionDirectory = {
+  queued?: string[];
   entries: Discussion[];
   requestId: string | null;
   requestedAt: string | null;
@@ -193,6 +196,9 @@ export type Api = {
   queue(value: Compose): Promise<string>;
   mark(id: string, patch: { read?: boolean; starred?: boolean }): Promise<void>;
   removeDraft(id: string): Promise<void>;
+  trashMessage(id: string): Promise<void>;
+  restoreMessage(id: string): Promise<void>;
+  deleteMessage(id: string): Promise<void>;
   contact(name: string, address: string): Promise<void>;
   areaCommand(tag: string, subscribe: boolean): Promise<void>;
   requestAreaList(): Promise<void>;

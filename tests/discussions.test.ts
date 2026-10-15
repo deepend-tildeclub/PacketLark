@@ -75,7 +75,7 @@ describe('SBBSecho discussion replies', () => {
         ),
         profile,
       ),
-    ).toBeNull();
+    ).toMatchObject({ kind: 'error', error: expect.stringContaining('unreadable') });
     expect(() => managementTag('-ALL')).toThrow('minus');
     expect(() => managementTag('TEST\n%+ALL')).toThrow();
   });
@@ -200,7 +200,7 @@ describe('persistent discussion browsing', () => {
     s.receive([reply('Area Management Request', 'Invalid Password.')]);
     expect(s.state().discussions.error).toContain('password');
     expect(s.state().discussions.entries[0].pending).toBeNull();
-    expect(s.state().messages.filter((m) => m.folder === 'inbox')).toHaveLength(2);
+    expect(s.state().messages.filter((m) => m.folder === 'inbox')).toHaveLength(0);
     s.close();
   });
   it('does not remove subscriptions when a list is partial, and ignores older status replies', async () => {

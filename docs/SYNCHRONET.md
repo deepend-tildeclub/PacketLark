@@ -66,8 +66,8 @@ queues the command and starts an exchange. Transport acknowledgement only means
 the request was delivered. The status remains pending until SBBSecho confirms the
 change. A confirmed join adds the discussion to the sidebar before its first post.
 Leaving keeps downloaded messages accessible. After delivery, a pending request
-can be retried if its response was lost; read the provider's original netmail
-response when investigating a failure.
+can be retried if its response was lost. Rejections appear as readable errors in
+the discussion browser; consult SBBSecho logs on the BBS when investigating.
 
 Descriptions and subscription status come from your existing SBBSecho area file,
 sub-board configuration, and authorized EchoLists. Existing AreaFix permissions
@@ -81,8 +81,10 @@ PacketLark merges each part, keeping cached entries instead of inferring removal
 from an incomplete list. Refreshing may therefore retain older entries; the BBS
 still decides whether a join is allowed. Connected and unlinked replies update
 the last confirmed status. Only private replies from SBBSecho/AreaFix at the
-configured boss address, addressed to this point, are interpreted. Original
-replies remain in the Inbox. Other tossers can still be managed through manual
+configured boss address, addressed to this point, are interpreted. Recognized
+replies are consumed internally and never appear as mailbox messages. Outgoing
+automatic requests are also hidden. Existing recognized copies are cleaned up
+when the updated client opens the mailbox. Other tossers can still be managed through manual
 tag requests, but automatic reply parsing currently targets SBBSecho's formats.
 
 The **Join or leave using a tag** section preserves manual requests for areas not
@@ -95,7 +97,7 @@ Use one disposable point account and a local/test discussion first.
 1. Confirm the client imports the profile and completes an empty exchange. Watch BinkIT logs for the assigned point and successful authentication.
 2. Send direct netmail from the client to your own node/sysop. Confirm BinkIT receipt, SBBSecho import, and the recipient address/name.
 3. Reply from the BBS to the user's **point address**, then run the normal outbound processing. Confirm pickup in PacketLark and a successful response back.
-4. Request a test discussion subscription. Process the request with SBBSecho and inspect its AreaFix response. Correct authorization failures on the BBS rather than assuming a queued request succeeded.
+4. Request a test discussion subscription. Process the request with SBBSecho and confirm that PacketLark updates the discussion status without showing a control message in the Inbox or Sent. Correct authorization failures on the BBS rather than assuming a queued request succeeded.
 5. Post from the point, confirm it imports into the intended BBS sub-board, and reply from the BBS. Verify a second permitted downlink receives the post if you want to validate forwarding; transport acknowledgement is not proof of forwarding.
 6. Disconnect the client before an outgoing acknowledgement and retry. Its stored packet identity should remain stable. Confirm the BBS's own duplicate handling before repeating publicly.
 7. Restart PacketLark and verify drafts, read/starred flags, and unsent messages remain present.

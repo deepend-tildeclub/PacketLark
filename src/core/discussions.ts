@@ -16,6 +16,38 @@ export function managementTag(value: string): string {
   return tag;
 }
 
+/** Identify previously queued app requests when upgrading an existing mailbox. */
+export function isAreaRequest(message: Message, profile: Profile): boolean {
+  try {
+    if (
+      !['outbox', 'sent'].includes(message.folder) ||
+      message.area ||
+      message.to.trim().toLowerCase() !== 'areafix' ||
+      !sameAddress(message.fromAddress, profile.address) ||
+      !sameAddress(message.toAddress, profile.uplink.address) ||
+      !profile.uplink.areaFixPassword ||
+      message.subject !== profile.uplink.areaFixPassword
+    )
+      return false;
+    const lines = message.body
+      .split(/\r\n|\r|\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.at(-1) === '---') lines.pop();
+    return (
+      lines.length > 0 &&
+      lines.every((line) => {
+        if (['%LIST', '%QUERY', '%UNLINKED'].includes(line)) return true;
+        if (!/^[+-]/.test(line)) return false;
+        managementTag(line.slice(1));
+        return true;
+      })
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Parse SBBSecho replies only; ordinary netmail and public posts are never commands. */
 export function parseAreaReply(message: Message, profile: Profile): AreaReply | null {
   try {
@@ -51,7 +83,12 @@ export function parseAreaReply(message: Message, profile: Profile): AreaReply | 
       });
     }
     const empty = body.some((line) => /^None\.\s*$/i.test(line.trim()));
-    if (!entries.length && !empty) return null;
+    if (!entries.length && !empty)
+      return {
+        kind: 'error',
+        error:
+          'Your provider returned an unreadable discussion list. Try refreshing or contact your sysop.',
+      };
     return {
       kind: 'list',
       subscription:
@@ -99,5 +136,9 @@ export function parseAreaReply(message: Message, profile: Profile): AreaReply | 
       kind: 'error',
       error: 'Discussion management is disabled for this point. Contact your sysop.',
     };
-  return null;
+  return {
+    kind: 'error',
+    error:
+      'Your provider could not confirm the subscription change. Refresh discussions to check its status.',
+  };
 }

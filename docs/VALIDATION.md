@@ -41,3 +41,25 @@ both packaging targets. This patch adds no dependencies or server-side setup.
 Native display/input verification and live SBBSecho acceptance remain necessary;
 local renderer tests do not claim visual screenshot verification or a live BBS
 exchange.
+
+## Hidden management traffic and mail deletion patch
+
+Based on PacketLark `main` commit `ade6804`. TypeScript, ESLint, Prettier, the
+application build, 67 core tests, 14 Electron renderer tests in headless DOM mode,
+and 10 provisioning tests pass. The production main/preload IPC smoke also
+exercises the new delete/restore endpoints and retains renderer isolation. Its
+external test wrapper bypasses only the single-instance lock for this restricted
+environment and is not shipped.
+
+Regression coverage includes hidden requests before/after acknowledgement,
+split reply processing without Inbox items or new-mail counts, duplicate receipt
+persistence, friendly errors, old-mailbox cleanup, preserving ordinary queued
+bytes, deletion rollback on failed saves, permanent-deletion replay suppression,
+Trash/restore flags, draft deletion while editing, outbox cancellation/restoration,
+and explicit permanent-delete confirmation. Existing protocol, mailbox, public
+and private reply, draft autosave, and area-browser tests continue to pass.
+
+The unchanged Windows/Linux workflow runs the additional tests before packaging.
+Native display/input checks and live BBS acceptance were not run locally. No
+dependencies, provisioning settings, keyring identities, or transport options
+change in this patch.

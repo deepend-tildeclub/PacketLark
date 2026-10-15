@@ -16,7 +16,7 @@ import {
 } from './model.js';
 import { buildPacket, draftMessage } from './packet.js';
 import type { MailFile } from './binkp.js';
-import { managementTag, parseAreaReply } from './discussions.js';
+import { isAreaRequest, managementTag, parseAreaReply, type AreaReply } from './discussions.js';
 
 export function atomicWrite(destination: string, bytes: Uint8Array): void {
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
@@ -61,13 +61,15 @@ export class Store {
     db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS outgoing (name TEXT PRIMARY KEY, message_id TEXT NOT NULL, time INTEGER NOT NULL, bytes TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS contacts (address TEXT PRIMARY KEY, name TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS contacts (address TEXT PRIMARY KEY, name TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS message_receipts (id TEXT PRIMARY KEY, message_key TEXT NOT NULL);`);
     const version = db.exec('PRAGMA user_version')[0]?.values[0]?.[0];
     if (version !== 0 && version !== 1)
       throw new Error('Mailbox was created by a newer version of PacketLark.');
     db.exec('PRAGMA user_version=1');
     const store = new Store(db, sql, file, seal, unseal);
     if (!fs.existsSync(file)) atomicWrite(file, db.export());
+    store.cleanManagementTraffic();
     return store;
   }
   private rows(sql: string, params: (string | number)[] = []): Record<string, unknown>[] {
@@ -125,6 +127,34 @@ export class Store {
       JSON.stringify(message),
     ]);
   }
+  private remember(message: Message): void {
+    this.db.run('INSERT OR REPLACE INTO message_receipts VALUES (?,?)', [
+      message.id,
+      message.msgid ? JSON.stringify([message.area, message.msgid]) : '',
+    ]);
+  }
+  private cleanManagementTraffic(): void {
+    const p = this.profile();
+    if (!p) return;
+    const messages = this.messages();
+    const replies = messages.filter((m) => parseAreaReply(m, p));
+    const requests = messages.filter((m) => !m.internal && isAreaRequest(m, p));
+    if (!replies.length && !requests.length) return;
+    const alreadyProcessed = !!this.meta('discussions');
+    this.mutate(() => {
+      for (const m of requests)
+        this.put(
+          m.folder === 'sent'
+            ? { ...m, internal: true, subject: '', body: '', raw: '', packetName: '' }
+            : { ...m, internal: true },
+        );
+      for (const m of replies.sort((a, b) => a.date.localeCompare(b.date))) {
+        if (!alreadyProcessed) this.applyAreaReply(m, parseAreaReply(m, p)!);
+        this.remember(m);
+        this.db.run('DELETE FROM messages WHERE id=?', [m.id]);
+      }
+    });
+  }
   state(): State {
     const p = this.profile();
     return {
@@ -140,9 +170,12 @@ export class Store {
             charset: p.charset,
           }
         : null,
-      messages: this.messages(),
+      messages: this.messages().filter((m) => !m.internal),
       areas: JSON.parse(this.meta('areas') || '[]') as State['areas'],
-      discussions: this.discussions(),
+      discussions: {
+        ...this.discussions(),
+        queued: this.rows('SELECT message_id FROM outgoing').map((r) => r.message_id as string),
+      },
       contacts: this.rows('SELECT name,address FROM contacts ORDER BY name') as State['contacts'],
       syncing: false,
       status: p ? 'Ready to send & receive.' : 'Import your account file to get started.',
@@ -168,7 +201,7 @@ export class Store {
     });
     return id;
   }
-  private enqueue(value: Compose): string {
+  private enqueue(value: Compose, internal = false): string {
     const p = this.profile();
     if (!p) throw new Error('Import an account first.');
     const c = composeSchema.parse(value);
@@ -179,6 +212,7 @@ export class Store {
     if (old) message.msgid = old.msgid;
     const bytes = buildPacket(p, c, message.msgid);
     message.folder = 'outbox';
+    if (internal) message.internal = true;
     message.packetName = `${randomBytes(4).toString('hex')}.pkt`;
     this.put(message);
     this.db.run('INSERT INTO outgoing VALUES (?,?,?,?)', [
@@ -222,14 +256,17 @@ export class Store {
     this.mutate(() => {
       // Separate positive lists let us merge split messages without treating a missing part
       // as proof that an area was removed or unsubscribed.
-      directory.requestId = this.enqueue({
-        to: 'AreaFix',
-        toAddress: p.uplink.address,
-        subject: p.uplink.areaFixPassword,
-        body: '%LIST\n%QUERY\n%UNLINKED',
-        area: '',
-        replyId: '',
-      });
+      directory.requestId = this.enqueue(
+        {
+          to: 'AreaFix',
+          toAddress: p.uplink.address,
+          subject: p.uplink.areaFixPassword,
+          body: '%LIST\n%QUERY\n%UNLINKED',
+          area: '',
+          replyId: '',
+        },
+        true,
+      );
       directory.requestedAt = new Date().toISOString();
       directory.error = '';
       this.setMeta('discussions', JSON.stringify(directory));
@@ -245,24 +282,23 @@ export class Store {
         'A request for this discussion is already queued. Send & receive to deliver it.',
       );
     this.mutate(() => {
-      const id = this.enqueue({
-        to: 'AreaFix',
-        toAddress: p.uplink.address,
-        subject: p.uplink.areaFixPassword,
-        body: `${subscribe ? '+' : '-'}${tag}`,
-        area: '',
-        replyId: '',
-      });
+      const id = this.enqueue(
+        {
+          to: 'AreaFix',
+          toAddress: p.uplink.address,
+          subject: p.uplink.areaFixPassword,
+          body: `${subscribe ? '+' : '-'}${tag}`,
+          area: '',
+          replyId: '',
+        },
+        true,
+      );
       entry.pending = { action: subscribe ? 'join' : 'leave', messageId: id };
       entry.error = '';
       this.setMeta('discussions', JSON.stringify(directory));
     });
   }
-  private applyAreaReply(message: Message): void {
-    const p = this.profile();
-    if (!p) return;
-    const reply = parseAreaReply(message, p);
-    if (!reply) return;
+  private applyAreaReply(message: Message, reply: AreaReply): void {
     const directory = this.discussions();
     const receivedAt = new Date().toISOString();
     const replyTime = Number.isFinite(Date.parse(message.date)) ? message.date : receivedAt;
@@ -339,23 +375,35 @@ export class Store {
     message.folder = 'sent';
     message.error = '';
     this.mutate(() => {
-      this.put(message);
+      this.put(
+        message.internal ? { ...message, subject: '', body: '', raw: '', packetName: '' } : message,
+      );
       this.db.run('DELETE FROM outgoing WHERE name=?', [name]);
     });
   }
   receive(messages: Message[]): number {
+    const p = this.profile();
+    const receipts = this.rows('SELECT id,message_key FROM message_receipts');
     const known = this.messages(),
-      ids = new Set(known.map((m) => m.id)),
-      keys = new Set(known.filter((m) => m.msgid).map((m) => `${m.area}\0${m.msgid}`));
+      ids = new Set([...known.map((m) => m.id), ...receipts.map((r) => r.id as string)]),
+      keys = new Set([
+        ...known.filter((m) => m.msgid).map((m) => JSON.stringify([m.area, m.msgid])),
+        ...receipts.map((r) => r.message_key as string).filter(Boolean),
+      ]);
     let count = 0;
     this.mutate(() => {
       for (const m of messages) {
-        const key = `${m.area}\0${m.msgid}`;
+        const key = JSON.stringify([m.area, m.msgid]);
         if (ids.has(m.id) || (m.msgid && keys.has(key))) continue;
-        this.put(m);
-        this.applyAreaReply(m);
         ids.add(m.id);
         if (m.msgid) keys.add(key);
+        const reply = p ? parseAreaReply(m, p) : null;
+        if (reply) {
+          this.applyAreaReply(m, reply);
+          this.remember(m);
+          continue;
+        }
+        this.put(m);
         count++;
         if (m.area) {
           const areas = JSON.parse(this.meta('areas') || '[]') as State['areas'];
@@ -377,6 +425,51 @@ export class Store {
     if (this.messages().find((m) => m.id === id)?.folder !== 'drafts')
       throw new Error('Only drafts can be removed in version 1.');
     this.mutate(() => this.db.run('DELETE FROM messages WHERE id=?', [id]));
+  }
+  private visibleMessage(id: string): Message {
+    const message = this.messages().find((m) => m.id === id && !m.internal);
+    if (!message) throw new Error('Message not found.');
+    return message;
+  }
+  trashMessage(id: string): void {
+    const message = this.visibleMessage(id);
+    if (message.folder === 'trash') return;
+    this.mutate(() => {
+      this.put({
+        ...message,
+        folder: 'trash',
+        trash: {
+          folder: message.folder as NonNullable<Message['trash']>['folder'],
+          deletedAt: new Date().toISOString(),
+        },
+      });
+      // Cancelling queued mail is atomic with moving its message to Trash.
+      this.db.run('DELETE FROM outgoing WHERE message_id=?', [id]);
+    });
+  }
+  restoreMessage(id: string): void {
+    const message = this.visibleMessage(id);
+    if (message.folder !== 'trash' || !message.trash)
+      throw new Error('Only messages in Trash can be restored.');
+    const folder = message.trash.folder === 'outbox' ? 'drafts' : message.trash.folder;
+    const restored = { ...message, folder };
+    delete restored.trash;
+    if (folder === 'drafts') {
+      restored.packetName = '';
+      restored.error = '';
+    }
+    this.mutate(() => this.put(restored));
+  }
+  deleteMessage(id: string): void {
+    const message = this.visibleMessage(id);
+    if (message.folder !== 'trash')
+      throw new Error('Move this message to Trash before deleting it permanently.');
+    this.mutate(() => {
+      // Keep only identity, so a retried incoming packet cannot resurrect deleted mail.
+      this.remember(message);
+      this.db.run('DELETE FROM outgoing WHERE message_id=?', [id]);
+      this.db.run('DELETE FROM messages WHERE id=?', [id]);
+    });
   }
   contact(name: string, address: string): void {
     if (!name.trim() || name.length > 35 || /[\x00-\x1f]/.test(name))

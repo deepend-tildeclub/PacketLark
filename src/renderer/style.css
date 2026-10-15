@@ -243,6 +243,9 @@ textarea:focus-visible {
 .failed {
   color: var(--danger);
 }
+button.danger {
+  color: var(--danger);
+}
 .reader {
   overflow: auto;
   min-width: 0;

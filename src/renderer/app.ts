@@ -132,12 +132,13 @@ function render() {
     ['drafts', 'Drafts'],
     ['outbox', 'Outbox'],
     ['starred', 'Starred'],
+    ['trash', 'Trash'],
     ['contacts', 'Contacts'],
   ];
   for (const [id, title] of folders) {
     const count = state.messages.filter((m) =>
       id === 'starred'
-        ? m.starred
+        ? m.starred && m.folder !== 'trash'
         : id === 'inbox'
           ? m.folder === 'inbox' && !m.area && !m.read
           : m.folder === id,
@@ -146,6 +147,7 @@ function render() {
       title,
       () => {
         folder = id;
+        if (id === 'trash') unreadOnly = false;
         selection = '';
         query = '';
         search.value = '';
@@ -251,7 +253,7 @@ function renderMailbox() {
       const match = area
         ? m.area === area && m.folder === 'inbox'
         : folder === 'starred'
-          ? m.starred
+          ? m.starred && m.folder !== 'trash'
           : folder === 'inbox'
             ? m.folder === 'inbox' && !m.area
             : m.folder === folder;
@@ -288,7 +290,11 @@ function renderMailbox() {
     );
     const top = e('div', 'row-top');
     top.append(
-      e('span', 'sender', m.folder === 'inbox' ? m.from : `To: ${m.to}`),
+      e(
+        'span',
+        'sender',
+        (m.folder === 'trash' ? m.trash?.folder : m.folder) === 'inbox' ? m.from : `To: ${m.to}`,
+      ),
       e('time', '', date(m.date)),
     );
     b.append(
@@ -306,7 +312,7 @@ function renderMailbox() {
       );
     messageList.append(b);
   }
-  const selected = state.messages.find((m) => m.id === selection);
+  const selected = messages.find((m) => m.id === selection);
   if (selected) renderMessage(selected);
   else {
     const empty = e('div', 'empty-reader');
@@ -336,7 +342,24 @@ function renderMessage(m: Message) {
   );
   head.append(info);
   const actions = e('div', 'reader-actions');
-  if (m.folder !== 'drafts') {
+  if (m.folder === 'trash') {
+    actions.append(
+      button(
+        'Restore',
+        () =>
+          void action(async () => {
+            await api.restoreMessage(m.id);
+            selection = '';
+            notify(
+              m.trash?.folder === 'outbox'
+                ? 'Restored to Drafts. Review it before sending again.'
+                : 'Message restored.',
+            );
+          }),
+      ),
+      button('Delete permanently', () => deletePermanently(m), 'danger'),
+    );
+  } else if (m.folder !== 'drafts') {
     actions.append(
       button(m.area ? 'Reply to discussion' : 'Reply', () => reply(m, false), 'primary'),
       button(
@@ -353,13 +376,44 @@ function renderMessage(m: Message) {
       button('Save contact', () => contactDialog(m.from, m.fromAddress)),
       button('Details', () => details(m)),
     );
-  } else
+  } else actions.append(button('Edit draft', () => openCompose({ ...m }), 'primary'));
+  if (m.folder !== 'trash')
     actions.append(
-      button('Edit draft', () => openCompose({ ...m }), 'primary'),
-      button('Delete draft', () => void action(() => api.removeDraft(m.id))),
+      button(
+        m.folder === 'drafts' ? 'Delete draft' : 'Delete',
+        () =>
+          void action(async () => {
+            await api.trashMessage(m.id);
+            selection = '';
+            notify(
+              m.folder === 'outbox'
+                ? 'Pending send cancelled. Message moved to Trash.'
+                : 'Message moved to Trash.',
+            );
+          }),
+        'danger',
+      ),
     );
+  for (const control of actions.querySelectorAll('button')) {
+    if (
+      ['Delete', 'Delete draft', 'Delete permanently', 'Restore'].includes(
+        control.textContent || '',
+      )
+    )
+      control.disabled = state.syncing;
+  }
   head.append(actions);
   reader.append(head);
+  if (m.folder === 'trash')
+    reader.append(
+      e(
+        'div',
+        'notice',
+        m.trash?.folder === 'outbox'
+          ? 'This message is in Trash. Its pending send was cancelled; restoring returns it to Drafts.'
+          : 'This message is in Trash. Restore it to return it to its original folder.',
+      ),
+    );
   if (m.folder === 'sent')
     reader.append(
       e(
@@ -377,9 +431,12 @@ function renderMessage(m: Message) {
     thread.unshift(current);
     seen.add(current.id);
     const previous: string = current.replyId;
-    current = previous
-      ? state.messages.find((x) => x.msgid === previous && x.area === m.area)
-      : undefined;
+    current =
+      previous && m.folder !== 'trash'
+        ? state.messages.find(
+            (x) => x.msgid === previous && x.area === m.area && x.folder !== 'trash',
+          )
+        : undefined;
   }
   for (const part of thread) {
     const article = e('article', 'message-body');
@@ -390,7 +447,13 @@ function renderMessage(m: Message) {
     reader.append(article);
   }
   const responses = state.messages.filter(
-    (x) => m.msgid && x.replyId === m.msgid && x.area === m.area && !seen.has(x.id),
+    (x) =>
+      m.folder !== 'trash' &&
+      x.folder !== 'trash' &&
+      m.msgid &&
+      x.replyId === m.msgid &&
+      x.area === m.area &&
+      !seen.has(x.id),
   );
   if (responses.length) {
     const box = e('div', 'thread-links');
@@ -405,6 +468,24 @@ function renderMessage(m: Message) {
       );
     reader.append(box);
   }
+}
+function deletePermanently(message: Message) {
+  const { body, close } = dialog('Delete message permanently?');
+  body.append(
+    e('p', '', `Permanently delete “${message.subject || '(No subject)'}”? This cannot be undone.`),
+    button('Cancel', close),
+    button(
+      'Delete permanently',
+      () =>
+        void action(async () => {
+          await api.deleteMessage(message.id);
+          selection = '';
+          close();
+          notify('Message permanently deleted.');
+        }),
+      'danger',
+    ),
+  );
 }
 function dialog(title: string): {
   box: HTMLDialogElement;
@@ -459,6 +540,8 @@ function openCompose(initial: Partial<Compose> = {}) {
   const currentArea = folder.startsWith('area:') ? folder.slice(5) : '';
   let draftId = initial.id,
     dirty = false,
+    removingDraft = false,
+    submitting = false,
     saving = Promise.resolve(),
     saveError: unknown;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -543,6 +626,7 @@ function openCompose(initial: Partial<Compose> = {}) {
     return saving;
   };
   const closeSafely = async () => {
+    if (removingDraft || submitting) return;
     await save();
     if (saveError) {
       notify(saveError instanceof Error ? saveError.message : 'Draft could not be saved.', true);
@@ -582,6 +666,8 @@ function openCompose(initial: Partial<Compose> = {}) {
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (removingDraft || submitting) return;
+    submitting = true;
     void (async () => {
       send.disabled = true;
       try {
@@ -594,12 +680,46 @@ function openCompose(initial: Partial<Compose> = {}) {
         await refresh();
       } catch (error) {
         notify(error instanceof Error ? error.message : 'Could not queue message.', true);
+        submitting = false;
         send.disabled = false;
       }
     })();
   });
   buttons.append(
     send,
+    button(
+      'Delete draft',
+      () => {
+        if (removingDraft || submitting) return;
+        removingDraft = true;
+        const controls = [
+          ...form.querySelectorAll<
+            HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement
+          >('input,select,textarea,button'),
+        ];
+        const previous = controls.map((control) => control.disabled);
+        for (const control of controls) control.disabled = true;
+        void (async () => {
+          try {
+            await save();
+            if (saveError) throw saveError;
+            if (draftId) await api.trashMessage(draftId);
+            composer = null;
+            close();
+            selection = '';
+            notify(draftId ? 'Draft moved to Trash.' : 'Empty draft closed.');
+            await refresh();
+          } catch (error) {
+            notify(error instanceof Error ? error.message : 'Could not delete this draft.', true);
+            removingDraft = false;
+            controls.forEach((control, i) => {
+              control.disabled = previous[i];
+            });
+          }
+        })();
+      },
+      'danger',
+    ),
     button('Save & close', () => void closeSafely()),
   );
   form.append(buttons);
@@ -737,7 +857,9 @@ function areasDialog() {
   }
   function draw() {
     const directory = state.discussions;
-    const outbox = new Set(state.messages.filter((m) => m.folder === 'outbox').map((m) => m.id));
+    const outbox = new Set(
+      directory.queued ?? state.messages.filter((m) => m.folder === 'outbox').map((m) => m.id),
+    );
     const waiting = !!directory.requestId && outbox.has(directory.requestId);
     listRequest.disabled = busy || state.syncing || waiting;
     check.disabled = busy || state.syncing;

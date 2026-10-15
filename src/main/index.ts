@@ -194,6 +194,24 @@ function register() {
     store.contact(z.string().parse(name), z.string().parse(addr));
     emit();
   });
+  const mailboxChange = (fn: (id: string) => void) => (id: unknown) => {
+    if (syncing)
+      throw new Error('Wait for send & receive to finish before deleting or restoring mail.');
+    fn(z.string().min(1).max(128).parse(id));
+    emit();
+  };
+  handle(
+    'trashMessage',
+    mailboxChange((id) => store.trashMessage(id)),
+  );
+  handle(
+    'restoreMessage',
+    mailboxChange((id) => store.restoreMessage(id)),
+  );
+  handle(
+    'deleteMessage',
+    mailboxChange((id) => store.deleteMessage(id)),
+  );
   handle('area', (tag, subscribe) => {
     if (syncing) throw new Error('Wait for send & receive to finish before changing discussions.');
     const add = z.boolean().parse(subscribe);

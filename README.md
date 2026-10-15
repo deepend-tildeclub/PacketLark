@@ -24,11 +24,13 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Import a provider-issued account and keep credentials in OS-protected storage.
 - Direct messages and public discussions, with a three-pane reader.
 - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
+- Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
 - Send & receive manually or periodically while the application is running.
 - Plain-text display, UTF-8 and selected legacy outgoing encodings, incoming declared encodings supported by iconv-lite.
 - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
 - Explicit public replies and private replies, plus AreaFix join/leave requests.
 - Browse available discussions with descriptions, search and subscription filters; join or leave using buttons and track provider confirmations.
+- Handle discussion-management requests and replies internally, including cleaning up recognized copies from older mailboxes.
 - Raw Type-2+ packets and standard flat ZIP mail bundles on receive; raw Type-2+ packets on send.
 - Persist incoming mail before sending M_GOT; preserve outgoing bytes, filename, timestamp, and MSGID until acknowledged.
 - Back up the local mailbox using Account → Back up mailbox.
@@ -79,7 +81,9 @@ This is a **point link**, not a Synchronet terminal-login user. No BBS user reco
 
 FidoNet is store-and-forward. Sent means the provider accepted the packet, not delivered or read. Direct messages are not end-to-end encrypted. CRAM-MD5 is legacy BinkP authentication, not message encryption; use the optional certificate-verified implicit TLS connection if your provider offers it. The app does not implement BinkD's legacy CRYPT extension or silently downgrade TLS verification.
 
-Messages in `mailbox.sqlite` are local plaintext. The account profile is OS-encrypted, but queued wire packets contain their packet password and AreaFix management messages contain their AreaFix password. Backups therefore need private storage. Moving the database to another computer does not move the OS decryption key. Keep the original signup file securely for a future account move. Restoring a backup is currently a documented offline operation, not a UI feature.
+Messages in `mailbox.sqlite` are local plaintext. The account profile is OS-encrypted, but queued wire packets contain their packet password and pending discussion-management requests contain their AreaFix password. Automatic management traffic is hidden from the mailbox; its request subject/body are cleared after transport acknowledgement, and recognized replies are consumed after processing. Backups therefore need private storage. Moving the database to another computer does not move the OS decryption key. Keep the original signup file securely for a future account move. Restoring a backup is currently a documented offline operation, not a UI feature.
+
+**Delete** moves a message to **Trash**, retaining its read/starred flags and original folder. Use **Restore** to recover it, or **Delete permanently** in Trash to remove its local contents after confirmation. Queued mail is removed from the send queue when trashed, and restores to Drafts for review rather than resending automatically. Deletion does not recall mail already accepted by another system or remove a public post from other BBSes.
 
 There is no HTML mail, email/SMTP transport, file attachments, file echoes/TIC handling, global user directory, read receipts, modem support, packet forwarding, background system service, automatic update service, or account self-registration in 0.1. This client does not edit or retract messages already sent through the network. Read [architecture and reliability](docs/ARCHITECTURE.md) for the scope and failure behavior.
 
