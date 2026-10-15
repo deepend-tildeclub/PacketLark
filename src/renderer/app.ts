@@ -84,7 +84,13 @@ function setText(node: HTMLElement, value: string) {
 
 const toolbar = e('header', 'toolbar');
 const brand = e('div', 'brand');
-brand.append(e('div', 'brand-mark', 'P'), e('div', '', 'PacketLark'));
+const brandIcon = e('img', 'brand-mark');
+brandIcon.src = new URL('../../build/icon.svg', import.meta.url).href;
+brandIcon.alt = '';
+brandIcon.width = 33;
+brandIcon.height = 33;
+brandIcon.draggable = false;
+brand.append(brandIcon, e('div', '', 'PacketLark'));
 toolbar.append(brand);
 const composeButton = button('＋ New message', () => openCompose(), 'primary');
 const syncButton = button('↻ Send & receive', () => void action(() => api.sync()));

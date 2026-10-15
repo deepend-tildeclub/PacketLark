@@ -322,6 +322,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'PacketLark',
+    icon: path.join(app.getAppPath(), 'build', 'icon.png'),
     backgroundColor: '#f4f5f6',
     webPreferences: {
       preload: path.join(here, 'preload.cjs'),

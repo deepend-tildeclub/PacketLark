@@ -1,5 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect x="8" y="8" width="496" height="496" rx="100" fill="#1b6658"/>
-  <text x="256" y="350" text-anchor="middle" font-family="Georgia,serif" font-size="350" font-weight="bold" fill="white">P</text>
-  <path d="M123 402h266" stroke="#a9d6c0" stroke-width="12"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <title>PacketLark</title>
+  <desc>A lark in flight, its folded wing carrying a message.</desc>
+  <defs>
+    <linearGradient id="tile" x1="72" y1="32" x2="440" y2="488" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#237B70"/>
+      <stop offset="1" stop-color="#103F43"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="199" y1="124" x2="279" y2="316" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF3"/>
+      <stop offset="1" stop-color="#DAEEE2"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="180" y1="258" x2="300" y2="365" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8D892"/>
+      <stop offset="1" stop-color="#E8AB59"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#tile)"/>
+  <rect x="17" y="17" width="478" height="478" rx="111" stroke="#FFFDF3" stroke-opacity=".12" stroke-width="2"/>
+  <path d="m112 365 56-96 69 53-125 43Z" fill="#C0DED0"/>
+  <path d="M169 282c-9-55 12-116 56-168l82 143-102 62-36-37Z" fill="url(#wing)"/>
+  <path d="m225 114 11 151-67 17 138-25-82-143Z" fill="#FFFDF3"/>
+  <path d="M166 279c44-10 91-19 132-32l21-32c10-17 30-22 46-14l11-12 5 27 31 18-34 12c-17 49-62 88-117 102l-70-17-25-52Z" fill="#FFFDF3"/>
+  <path d="m166 279 132-32-39 99-68-15-25-52Z" fill="url(#letter)"/>
+  <path d="m166 279 76 26 56-58" stroke="#FFF5D8" stroke-width="8" stroke-linejoin="round"/>
+  <path d="m378 221 34 13-34 12 5-13-5-12Z" fill="#F5C776"/>
+  <circle cx="352" cy="225" r="7" fill="#174F4E"/>
 </svg>

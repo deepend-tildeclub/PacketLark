@@ -60,6 +60,7 @@
     },
     "files": [
       "dist/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "asar": true,

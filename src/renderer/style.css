@@ -72,13 +72,9 @@ textarea:focus-visible {
 .brand-mark {
   width: 33px;
   height: 33px;
-  display: grid;
-  place-items: center;
-  background: var(--accent);
-  color: #fff;
-  font-size: 23px;
-  font-family: Georgia, serif;
-  border-radius: 6px;
+  display: block;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 .search {
   margin-left: auto;
