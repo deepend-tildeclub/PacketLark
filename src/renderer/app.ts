@@ -1,6 +1,7 @@
 import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
 import './style.css';
 import { mailboxCounts, messageSort, reconcileChildren, sortMessages } from './mailbox.js';
+import { visibleDiscussions } from '../core/areas.js';
 declare global {
   interface Window {
     packetlark: Api;
@@ -152,7 +153,7 @@ async function refresh() {
   try {
     do {
       refreshAgain = false;
-      state = await api.state();
+      state = visibleDiscussions(await api.state());
       render();
     } while (refreshAgain);
   } finally {

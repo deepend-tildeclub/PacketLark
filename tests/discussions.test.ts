@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '../src/core/store.js';
 import { buildPacket, parsePacket } from '../src/core/packet.js';
 import { managementTag, parseAreaReply } from '../src/core/discussions.js';
+import { visibleDiscussions } from '../src/core/areas.js';
 import type { Message, Profile } from '../src/core/model.js';
 import { compose, profile } from './fixtures.js';
 
@@ -47,6 +48,70 @@ afterEach(() => {
 });
 
 describe('SBBSecho discussion replies', () => {
+  it('hides ADM descriptions from profile areas and cached directory without discarding mail', async () => {
+    const s = await open();
+    s.install({
+      ...profile,
+      areas: [
+        { tag: 'STAFF', name: 'Staff chat' },
+        { tag: 'LOCAL', name: 'Local (aDm)' },
+        { tag: 'ADM_TAG', name: 'General conversation' },
+      ],
+    });
+    const post = reply('A retained post', 'Keep downloaded content', {
+      area: 'STAFF',
+      from: 'A person',
+    });
+    s.receive([post]);
+    s.receive([
+      reply('List of Connected Areas', 'STAFF Staff discussion [ADM]\nTECH Technical discussion'),
+    ]);
+    expect(s.state().areas.map((a) => a.tag)).toEqual(['ADM_TAG', 'TECH']);
+    expect(s.state().discussions.entries.map((a) => a.tag)).toEqual(['TECH']);
+    expect(s.state().messages.some((m) => m.id === post.id)).toBe(true);
+    const pending = s.pending().length;
+    expect(() => s.areaCommand('STAFF', true)).toThrow('administrative');
+    expect(() => s.areaCommand('LOCAL', true)).toThrow('administrative');
+    expect(s.pending()).toHaveLength(pending);
+    // A provider can later make the area available again: retained metadata is still usable.
+    s.receive([reply('List of Available Areas', 'STAFF Staff conversation')]);
+    expect(s.state().areas.some((a) => a.tag === 'STAFF')).toBe(true);
+    expect(s.state().discussions.entries.find((a) => a.tag === 'STAFF')?.subscription).toBe(
+      'joined',
+    );
+    s.close();
+  });
+  it('filters a cached presentation without mutating it or dropping pending state', () => {
+    const cached = {
+      areas: [
+        { tag: 'PRIVATE', name: 'Friendly old name' },
+        { tag: 'PUBLIC', name: 'Public chat' },
+      ],
+      discussions: {
+        entries: [
+          {
+            tag: 'PRIVATE',
+            name: 'ADM - private',
+            subscription: 'joined' as const,
+            confirmedAt: null,
+            pending: null,
+            error: '',
+          },
+        ],
+        requestId: 'request',
+        requestedAt: null,
+        updatedAt: null,
+        error: '',
+        queued: ['request'],
+      },
+    };
+    const before = structuredClone(cached);
+    const visible = visibleDiscussions(cached);
+    expect(visible.areas.map((a) => a.tag)).toEqual(['PUBLIC']);
+    expect(visible.discussions.entries).toEqual([]);
+    expect(visible.discussions.queued).toEqual(['request']);
+    expect(cached).toEqual(before);
+  });
   it('parses actual Type-2+ list messages with descriptions and continuation footers', () => {
     expect(
       parseAreaReply(

@@ -927,3 +927,47 @@ test('also sorts direct-message conversation bodies without changing reply actio
     page.getByRole('dialog').getByRole('textbox', { name: 'Subject', exact: true }),
   ).toHaveValue('Re: Direct reply');
 });
+
+test('hides cached ADM descriptions from the sidebar, composer, search and discussion filters', async ({
+  page,
+}) => {
+  const entry = (tag: string, name: string, subscription: 'joined' | 'left') => ({
+    tag,
+    name,
+    subscription,
+    confirmedAt: null,
+    pending: null,
+    error: '',
+  });
+  await setup(page, true, {
+    ...state.discussions,
+    updatedAt: '2026-10-15T00:00:00Z',
+    entries: [
+      entry('TEST', 'Private discussion (ADM)', 'joined'),
+      entry('STAFF', 'Staff aDm only', 'left'),
+      entry('ADM_TAG', 'General conversation', 'left'),
+      entry('TECH', 'Computers & technology', 'joined'),
+    ],
+  });
+  await expect(page.getByRole('button', { name: 'Test discussion', exact: true })).toHaveCount(0);
+  await click(page.getByRole('button', { name: '＋ New message' }));
+  await expect(
+    page.getByRole('dialog').locator('option', { hasText: 'Test discussion' }),
+  ).toHaveCount(0);
+  await click(
+    page.getByRole('dialog').getByRole('button', { name: 'Save & close', exact: true }).last(),
+  );
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await click(page.getByRole('button', { name: '＋ Manage discussions' }));
+  const browser = page.getByRole('dialog', { name: 'Manage discussions' });
+  await expect(browser.locator('.discussion-row')).toHaveCount(2);
+  await expect(browser.getByRole('button', { name: 'Join ADM_TAG', exact: true })).toBeVisible();
+  await browser.getByRole('combobox', { name: 'Show', exact: true }).selectOption('joined');
+  await expect(browser.locator('.discussion-row')).toHaveCount(1);
+  await expect(browser.locator('.discussion-row')).toContainText('TECH');
+  await browser.getByRole('combobox', { name: 'Show', exact: true }).selectOption('all');
+  await browser.getByLabel('Search discussions').fill('Private');
+  await expect(browser.locator('.discussion-row')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Test discussion', exact: true })).toHaveCount(0);
+});

@@ -6,7 +6,11 @@ PacketLark 0.1 is a point client. Your existing node remains the boss, routes ne
 
 Use your current working Synchronet/SBBSecho v3/BinkIT v2 configuration. Verify your node already exchanges normal mail. Keep your existing BinkP listener and events. PacketLark does not install a BBS, replace a mailer, change your AKAs, or change global routing.
 
-Use the actual path to your active `ctrl/sbbsecho.ini`. On your Linux BBS, run the Python tool as the account that normally owns that configuration. Python 3.10+ is the only server-side dependency. Coordinate applying changes with a quiet period: pause mail-processing events and do not keep EchoCfg open with unsaved changes. The script's lock coordinates its own invocations; Synchronet and other editors do not honor that lock.
+Use the actual path to your active `ctrl/sbbsecho.ini`. On your Linux BBS, run the Python tool as the account that normally owns that configuration. Python 3.10+ is the only server-side dependency; keep `provision_point.py` and `live_provision.py` together in `tools/`.
+
+**Normal provisioning now works while Synchronet stays online.** Run the same command with `--apply`; no manual event pause, event configuration edit, service restart, or BBS shutdown is needed. The tool waits up to 60 seconds for SBBSecho's native `ctrl/sbbsecho.bsy` mutex and for an open EchoCfg process to finish. It then acquires that mutex itself, reads the current configuration, allocates the point, and commits the addition. SBBSecho jobs that encounter this brief mutex window can exit busy; after releasing it, the tool signals the configured import/export events again. Connected BBS users and the BinkP listener stay running.
+
+The provisioner's original lock still coordinates with older versions of the script. An already-open EchoCfg is detected on Linux/Windows to avoid overwriting its in-memory configuration. A timeout fails without adding a point and does not remove another process's mutex. The tool checks for EchoCfg and changed config bytes again immediately before replacing the file. Arbitrary editors, renamed EchoCfg executables, remote writers on a shared filesystem, and administrators starting an editor during the short final check/write interval do not participate in this protocol; do not edit the same configuration concurrently. This is coordinated live provisioning, not a guarantee against every external writer or power failure.
 
 Back up your normal BBS configuration using your existing procedure before the first trial. The tool also makes a private timestamped backup of the exact file it appends to. It does not rewrite or reserialize existing sections.
 
@@ -30,17 +34,20 @@ Without `--apply`, this only prints a credential-free plan. No config, signup fi
 
 After reviewing the point, host, port, and output path, run the same command with `--apply` appended. It will:
 
-1. Refuse an existing point or output file, or a competing allocator lock.
-2. Generate independent random session, packet, and AreaFix credentials.
-3. Save a mode-0600 timestamped backup alongside `sbbsecho.ini`.
-4. Append only the new `[node:zone:net/node.point@domain]` section.
-5. Create the matching private `.packetlark` file with mode 0600 on Unix.
+1. Acquire the provisioner lock, wait for SBBSecho/EchoCfg, and hold SBBSecho's native mutex.
+2. Re-read the current configuration and refuse an existing point or output file.
+3. Generate independent random session, packet, and AreaFix credentials.
+4. Save a mode-0600 timestamped backup alongside `sbbsecho.ini`.
+5. Append only the new `[node:zone:net/node.point@domain]` section using atomic replacement and create the matching private `.packetlark` file with mode 0600 on Unix.
+6. Release the mutex and signal FidoNet import/export processing, including when an ordinary error or Ctrl-C interrupts the protected operation.
 
 The link uses Type-2+ packets, no archive packing, hold-for-pickup status, no outbound polling, and CRAM-MD5 authentication. The account tells PacketLark to poll every ten minutes while open. Existing links, global options, domain sections, and user records remain untouched.
 
 On Windows, use equivalent single-line PowerShell commands and protected NTFS folders; Unix mode bits do not substitute for Windows ACLs. The tool must be able to preserve the config file's ownership and replace it in its existing directory.
 
-Resume your normal events after checking the appended section in EchoCfg. Do not save an old, already-open EchoCfg session over the newly appended file. BinkIT normally reads the configuration for its sessions; follow your installation's usual refresh/reload procedure where needed.
+The data directory is read from `[dir] data` in `ctrl/main.ini` (default `../data/`, relative to the control directory). The standard `FIDOIN` and `FIDOOUT` events are signalled by touching their `.now` files without removing existing requests. Sites with custom event codes can pass `--resume-event IMPORTCODE --resume-event EXPORTCODE`; `--data-dir /actual/data` overrides path discovery for custom/include-based configurations. `--wait-seconds 120` extends the busy wait. These options do not edit BBS event settings.
+
+BinkIT reads `sbbsecho.ini` when starting sessions, so newly started sessions can use the point without restarting Synchronet. An already running session can retain its earlier configuration; retry that session normally. An interrupted write removes an uncommitted signup file, but retains credentials if the config addition already committed. If event signalling fails after a successful commit, the output reports a `warnings` entry and keeps the point/account intact. For an already stopped BBS, `--offline` retains the older provisioning workflow without live coordination or event signalling; it must not be used to bypass coordination on a running system. A hard kill or power failure can leave a mutex file; do not automatically delete a mutex belonging to a potentially active process.
 
 ## First user connection
 
@@ -73,6 +80,8 @@ Descriptions and subscription status come from your existing SBBSecho area file,
 sub-board configuration, and authorized EchoLists. Existing AreaFix permissions
 remain authoritative. No HTTP endpoint, new BBS script, or provisioning change is
 required. Areas can have their tag as a name if the provider has no description.
+
+Descriptions containing `ADM` (case-insensitive, anywhere in the description) are hidden from Manage discussions, its search and status filters, the sidebar, and the compose area menu. This also applies to existing cached lists and imported profile areas. The most recent cached provider description takes precedence over an older profile label. A tag containing `ADM` with an ordinary description is not hidden just because of its tag. Known hidden areas cannot be joined through a manual tag request. Subscription metadata and downloaded messages remain stored; the filter does not unsubscribe points, delete messages, or replace the BBS's own access controls.
 
 The directory is cached in the existing mailbox and survives restarts. Large
 lists load 100 rows at a time, and searches cover the entire cached list. SBBSecho

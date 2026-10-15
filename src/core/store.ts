@@ -17,6 +17,7 @@ import {
 import { buildPacket, draftMessage } from './packet.js';
 import type { MailFile } from './binkp.js';
 import { isAreaRequest, managementTag, parseAreaReply, type AreaReply } from './discussions.js';
+import { isAdminDiscussion, visibleDiscussions } from './areas.js';
 
 export function atomicWrite(destination: string, bytes: Uint8Array): void {
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
@@ -167,7 +168,7 @@ export class Store {
   }
   state(): State {
     const p = this.profile();
-    return {
+    return visibleDiscussions({
       revision: this.revision,
       account: p
         ? {
@@ -192,7 +193,7 @@ export class Store {
       status: p ? 'Ready to send & receive.' : 'Import your account file to get started.',
       lastSync: this.meta('lastSync'),
       storageWarning: false,
-    };
+    });
   }
   saveDraft(value: Compose): string {
     const p = this.profile();
@@ -287,6 +288,14 @@ export class Store {
     const p = this.managementProfile();
     tag = managementTag(tag);
     const directory = this.discussions();
+    const areas = JSON.parse(this.meta('areas') || '[]') as State['areas'];
+    const known = directory.entries.find((area) => area.tag === tag);
+    const description =
+      known && known.name !== tag
+        ? known.name
+        : areas.find((area) => area.tag === tag)?.name || known?.name || tag;
+    if (subscribe && isAdminDiscussion(description))
+      throw new Error('This administrative discussion is not available in PacketLark.');
     const entry = this.discussion(directory, tag);
     if (this.findMessage(entry.pending?.messageId)?.folder === 'outbox')
       throw new Error(

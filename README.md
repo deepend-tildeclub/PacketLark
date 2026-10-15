@@ -32,6 +32,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
 - Explicit public replies and private replies, plus AreaFix join/leave requests.
 - Browse available discussions with descriptions, search and subscription filters; join or leave using buttons and track provider confirmations.
+- Administrative discussions whose descriptions contain `ADM` are hidden from the discussion browser, sidebar, and compose area menu, including cached entries.
 - Handle discussion-management requests and replies internally, including cleaning up recognized copies from older mailboxes.
 - Raw Type-2+ packets and standard flat ZIP mail bundles on receive; raw Type-2+ packets on send.
 - Persist incoming mail before sending M_GOT; preserve outgoing bytes, filename, timestamp, and MSGID until acknowledged.
@@ -75,7 +76,7 @@ The npm 12 install-script policy explicitly denies hooks for the unused Squirrel
 
 ## Sysop provisioning
 
-The stdlib-only Python script allocates an unused point number, generates independent session/packet/AreaFix passwords, backs up `sbbsecho.ini`, appends a point-only linked-node entry, and writes a matching private signup file. Preview is the default. See [the full Synchronet instructions](docs/SYNCHRONET.md) before applying it to your BBS.
+The stdlib-only Python script allocates an unused point number, generates independent session/packet/AreaFix passwords, backs up `sbbsecho.ini`, appends a point-only linked-node entry, and writes a matching private signup file. Preview is the default. With `--apply`, live coordination automatically waits for SBBSecho/EchoCfg, uses SBBSecho's mutex, and signals import/export events afterwards; your BBS stays online without manual event pausing or a restart. See [the full Synchronet instructions](docs/SYNCHRONET.md) for custom paths/event codes and exceptional failure handling.
 
 This is a **point link**, not a Synchronet terminal-login user. No BBS user record is required for the client. Initial discussion names in a signup file are a catalogue, not existing server subscriptions; use Manage discussions to request joins and wait for the provider's response.
 

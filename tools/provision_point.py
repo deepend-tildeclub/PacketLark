@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import datetime as dt
 import json
 import os
@@ -11,7 +12,13 @@ from pathlib import Path
 import re
 import secrets
 import sys
+import signal
 import tempfile
+
+if __package__:
+    from .live_provision import check_editor, live_window
+else:
+    from live_provision import check_editor, live_window
 
 ADDRESS = re.compile(r"^(\d{1,5}):(\d{1,5})/(\d{1,5})(?:\.(\d{1,5}))?(?:@([a-z0-9.-]{1,40}))?$", re.I)
 TAG = re.compile(r"^[A-Z0-9_!.-]{1,60}$")
@@ -81,6 +88,23 @@ def provision(args: argparse.Namespace) -> dict[str, object]:
     config = args.config.resolve(strict=True)
     if args.config.is_symlink():
         raise ValueError("Use the real configuration path, not a symlink")
+    if not args.apply:
+        return plan_and_apply(args, config)
+    # Keep compatibility with previous provisioners, while also honoring SBBSecho's mutex.
+    lock = config.with_name(config.name + ".retropost.lock")
+    lock_fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    summary: dict[str, object] = {}
+    try:
+        window = nullcontext() if getattr(args, "offline", False) else live_window(config, args, summary)
+        with window:
+            summary.update(plan_and_apply(args, config))
+        return summary
+    finally:
+        os.close(lock_fd)
+        lock.unlink(missing_ok=True)
+
+
+def plan_and_apply(args: argparse.Namespace, config: Path) -> dict[str, object]:
     original = config.read_bytes()
     # Read only enough INI syntax to identify collisions; never reserialize existing settings.
     text = original.decode("utf-8-sig")
@@ -141,29 +165,33 @@ def provision(args: argparse.Namespace) -> dict[str, object]:
                "groups": [a["tag"] for a in areas], "apply": args.apply}
     if not args.apply:
         return summary
+    if args.output.is_symlink():
+        raise ValueError("Output file is a symlink; refusing to overwrite credentials")
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if output.exists() or output.is_symlink():
         raise ValueError("Output file already exists; refusing to overwrite credentials")
-    # Coordinate with the original provisioning script during the rename as well.
-    lock = config.with_name(config.name + ".retropost.lock")
-    lock_fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     backup = config.with_name(config.name + ".packetlark-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".bak")
+    write_exclusive(backup, original)
+    write_exclusive(output, (json.dumps(profile, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+    addition = snippet.encode("utf-8")
     try:
-        # Protect against our own concurrent runs and detect editors/tossers that changed it since preview.
+        if not getattr(args, "offline", False):
+            check_editor()
         if config.read_bytes() != original:
             raise ValueError("Configuration changed while provisioning. Retry with the current file")
-        write_exclusive(backup, original)
-        write_exclusive(output, (json.dumps(profile, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+        replace_config(config, original + addition)
+    except BaseException:
+        # An interrupt can arrive immediately after rename. Never destroy the only
+        # signup credentials for a point that has already reached the config file.
         try:
-            replace_config(config, original + snippet.encode("utf-8"))
-        except BaseException:
+            committed = addition in config.read_bytes()
+        except OSError:
+            committed = True  # Keep credentials if the commit outcome cannot be read.
+        if not committed:
             output.unlink(missing_ok=True)
-            raise
-        summary["backup"] = str(backup)
-    finally:
-        os.close(lock_fd)
-        lock.unlink(missing_ok=True)
+        raise
+    summary["backup"] = str(backup)
     return summary
 
 
@@ -182,9 +210,22 @@ def main() -> int:
     parser.add_argument("--charset", choices=["UTF-8", "CP437", "CP850", "CP866", "WINDOWS-1252"], default="UTF-8")
     parser.add_argument("--output", type=Path, required=True, help="New private .packetlark signup file")
     parser.add_argument("--apply", action="store_true", help="Back up and append the point link, then create the signup file")
+    parser.add_argument("--wait-seconds", type=float, default=60,
+                        help="Wait for SBBSecho/EchoCfg to finish (default: 60 seconds)")
+    parser.add_argument("--data-dir", type=Path,
+                        help="Override Synchronet data directory used to signal mail processing")
+    parser.add_argument("--resume-event", action="append",
+                        help="Internal event code to signal afterwards (repeatable; default: FIDOIN and FIDOOUT)")
+    parser.add_argument("--offline", action="store_true",
+                        help="For an already stopped BBS only: skip live coordination and event signalling")
     args = parser.parse_args()
     if not 1 <= args.start <= 65535:
         parser.error("--start must be between 1 and 65535")
+    if not 0 <= args.wait_seconds <= 3600:
+        parser.error("--wait-seconds must be between 0 and 3600")
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, interrupted)
     try:
         print(json.dumps(provision(args), indent=2))
         if not args.apply:
@@ -196,6 +237,9 @@ def main() -> int:
     except (OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("Interrupted; provisioning locks released. Any committed account file was retained.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

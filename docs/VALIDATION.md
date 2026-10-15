@@ -1,5 +1,30 @@
 # 0.1.0 validation record
 
+## Live point provisioning and administrative discussion filtering
+
+Based on PacketLark `main` commit `e912dd4`. TypeScript, ESLint, Prettier,
+the application build, 74 core tests, 25 Electron renderer tests in headless
+DOM mode, and 24 Python provisioning tests pass. The existing Windows/Linux
+workflow discovers the new tests and packages the application without any
+workflow or dependency changes.
+
+Provisioning regression coverage includes the native SBBSecho mutex, busy
+timeouts without deleting another owner's lock, rereading config after waiting,
+EchoCfg detection, concurrent config edits, atomic-write failures, interruption
+before and after commit, event rescheduling, existing semaphore preservation,
+custom data/event paths, CLI invocation, credential redaction, and offline use.
+ADM filtering covers cached/profile descriptions, case-insensitive matching,
+provider description updates, manual join rejection, preserved stored mail,
+sidebar/compose/browser visibility, and existing search/status filters.
+
+The mutex protocol was checked against Synchronet's `src/sbbs3/nopen.c`
+(`fmutex`) and `src/sbbs3/sbbsecho.c`. Testing used disposable local config
+files and simulated jobs, not a production Synchronet installation. Native
+Windows execution and live BBS acceptance remain to be verified on their
+respective hosts. No production BBS was changed during these checks.
+
+## Original source ZIP
+
 Validated against the source ZIP baseline in the build environment:
 
 | Check                                             | Result                                                    |
