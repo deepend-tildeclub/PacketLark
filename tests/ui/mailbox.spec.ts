@@ -892,6 +892,7 @@ test('orders messages inside a discussion conversation and its replies using the
     },
   ]);
   await click(page.getByRole('button', { name: 'Test discussion', exact: true }));
+  await page.getByRole('combobox', { name: 'Message view', exact: true }).selectOption('messages');
   await click(page.locator('.message-row').filter({ hasText: 'Selected author' }));
   const bodies = page.locator('.reader .body-text');
   const replies = page.locator('.thread-links button');
@@ -1090,4 +1091,301 @@ test('notification clicks preserve an open draft and handle a missing message sa
   await expect(
     page.getByRole('dialog').getByRole('textbox', { name: 'Message', exact: true }),
   ).toHaveValue('Keep this unfinished draft');
+});
+
+function groupedFixture(): Message[] {
+  const root: Message = {
+    ...message,
+    id: 'group-root',
+    msgid: 'group root',
+    area: 'TEST',
+    from: 'Original author',
+    subject: 'Group root',
+    body: 'Original searchable needle',
+    read: false,
+    date: '2026-10-14T17:00:00Z',
+  };
+  return [
+    root,
+    {
+      ...root,
+      id: 'group-child',
+      msgid: 'group child',
+      replyId: root.msgid,
+      from: 'First responder',
+      subject: 'First reply',
+      body: 'First reply body',
+      date: '2026-10-14T18:00:00Z',
+    },
+    {
+      ...root,
+      id: 'group-branch',
+      msgid: 'group branch',
+      replyId: root.msgid,
+      from: 'Branch responder',
+      subject: 'Branch reply',
+      body: 'Branch reply body',
+      read: true,
+      date: '2026-10-14T19:00:00Z',
+    },
+    {
+      ...root,
+      id: 'group-sent',
+      msgid: 'group sent',
+      replyId: 'group child',
+      from: 'Outgoing author',
+      folder: 'sent',
+      subject: 'Sent reply',
+      body: 'Sent reply body',
+      read: true,
+      date: '2026-10-14T20:00:00Z',
+    },
+    {
+      ...root,
+      id: 'same-subject',
+      msgid: 'different thread',
+      from: 'Unrelated author',
+      read: true,
+      subject: 'Branch reply',
+      body: 'Unrelated matching subject',
+      date: '2026-10-14T16:00:00Z',
+    },
+  ];
+}
+
+test('groups branches by default and keeps selected-message actions and Trash scoped to one message', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, groupedFixture());
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  await expect(page.getByRole('combobox', { name: 'Message view', exact: true })).toHaveValue(
+    'conversations',
+  );
+  await expect(page.locator('.message-row')).toHaveCount(2);
+  await expect(page.locator('.conversation-count')).toHaveText('4 messages · 2 unread');
+  await click(page.locator('.message-row').first());
+  await expect(page.locator('.body-text')).toHaveText([
+    'Sent reply body',
+    'Branch reply body',
+    'First reply body',
+    'Original searchable needle',
+  ]);
+  await expect(page.locator('.thread-links')).toHaveCount(0);
+  await click(page.getByRole('button', { name: /^Outgoing author ·/ }));
+  await expect(page.locator('.reader-heading h1')).toHaveText('Sent reply');
+  await expect(page.locator('.message-row.selected')).toHaveCount(1);
+  await expect(page.locator('.reader .notice')).toContainText('Accepted by your provider');
+  await click(page.getByRole('button', { name: /^Original author ·/ }));
+  await expect(page.getByRole('button', { name: /^Original author ·/ })).toBeFocused();
+  await expect(page.locator('.reader-heading h1')).toHaveText('Group root');
+  await expect(page.locator('.conversation-count')).toHaveText('4 messages · 1 unread');
+  await page.getByRole('combobox', { name: 'Sort messages', exact: true }).selectOption('oldest');
+  await expect(page.locator('.body-text')).toHaveText([
+    'Original searchable needle',
+    'First reply body',
+    'Branch reply body',
+    'Sent reply body',
+  ]);
+  await click(page.getByRole('button', { name: 'Delete', exact: true }));
+  await expect(page.locator('.conversation-count')).toHaveText('3 messages · 1 unread');
+  await click(page.getByRole('button', { name: /^Trash/ }));
+  const view = page.getByRole('combobox', { name: 'Message view', exact: true });
+  await expect(view).toBeDisabled();
+  await expect(view).toHaveValue('messages');
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.body-text')).toHaveText('Original searchable needle');
+  await click(page.getByRole('button', { name: 'Restore', exact: true }));
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  await expect(view).toHaveValue('conversations');
+  await expect(page.locator('.conversation-count')).toHaveText('4 messages · 1 unread');
+});
+
+test('remembers individual-message view across folders and reloads and retains legacy reply navigation', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, groupedFixture());
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  const view = page.getByRole('combobox', { name: 'Message view', exact: true });
+  await view.selectOption('messages');
+  await expect(page.locator('.message-row')).toHaveCount(4);
+  await click(page.locator('.message-row').filter({ hasText: 'Original author' }));
+  await expect(page.locator('.body-text')).toHaveText('Original searchable needle');
+  await expect(page.locator('.thread-links button')).toHaveCount(2);
+  await click(page.getByRole('button', { name: /^Inbox/ }));
+  await expect(view).toHaveValue('messages');
+  await page.reload();
+  await expect(view).toHaveValue('messages');
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  await view.selectOption('conversations');
+  await expect(page.locator('.message-row')).toHaveCount(2);
+  await page.reload();
+  await expect(view).toHaveValue('conversations');
+});
+
+test('finds older conversation members and keeps search and unread filters on the same message', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, groupedFixture());
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  const search = page.getByRole('searchbox', { name: 'Search messages', exact: true });
+  await search.fill('searchable needle');
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await expect(page.locator('.message-row .subject')).toHaveText('Group root');
+  await expect(page.locator('.conversation-count')).toHaveText('4 messages · 2 unread');
+  await click(page.getByRole('button', { name: 'Unread only', exact: true }));
+  await search.fill('Branch reply body');
+  await expect(page.locator('.message-row')).toHaveCount(0);
+  await search.fill('First reply body');
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.message-row')).toHaveCount(0);
+  await search.fill('');
+  await expect(page.locator('.conversation-count')).toHaveText('4 messages · 1 unread');
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.message-row')).toHaveCount(0);
+});
+
+test('adds a new reply to the existing row and opens notification targets inside a grouped conversation', async ({
+  page,
+}) => {
+  const root = { ...message, read: true };
+  await setup(page, true, state.discussions, [root]);
+  await click(page.locator('.message-row'));
+  const row = await page.locator('.message-row').elementHandle();
+  const reply = {
+    ...root,
+    id: 'new-thread-reply',
+    msgid: 'new thread reply',
+    replyId: root.msgid,
+    subject: 'An arriving reply',
+    body: 'New reply body',
+    read: false,
+    date: '2026-10-16T00:00:00Z',
+  };
+  await page.evaluate((m) => window.packetlarkTest.replaceMessage(m), reply);
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  expect(await page.locator('.message-row').evaluate((current, old) => current === old, row)).toBe(
+    true,
+  );
+  await expect(page.locator('.conversation-count')).toHaveText('2 messages · 1 unread');
+  await expect(page.locator('.reader-heading h1')).toHaveText(root.subject);
+  await expect(page.locator('.body-text')).toHaveText([reply.body, root.body]);
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.reader-heading h1')).toHaveText(reply.subject);
+  await expect(page.locator('.conversation-count')).toHaveText('2 messages');
+  await page.evaluate((id) => window.packetlarkTest.openNotification(id), root.id);
+  await expect(page.locator('.reader-heading h1')).toHaveText(root.subject);
+  await expect(page.locator('.message-row.selected')).toHaveCount(1);
+  await click(page.getByRole('button', { name: 'Reply', exact: true }));
+  await expect(
+    page.getByRole('dialog').getByRole('textbox', { name: 'Subject', exact: true }),
+  ).toHaveValue(`Re: ${root.subject}`);
+});
+
+test('paginates conversation rows and still searches all replies beyond the first page', async ({
+  page,
+}) => {
+  const messages = Array.from({ length: 230 }, (_, i) => [
+    {
+      ...message,
+      id: `paged-root-${i}`,
+      msgid: `paged root ${i}`,
+      read: true,
+      subject: `Topic ${i}`,
+      date: new Date(Date.UTC(2026, 9, 14) + i * 2000).toISOString(),
+    },
+    {
+      ...message,
+      id: `paged-reply-${i}`,
+      msgid: `paged reply ${i}`,
+      replyId: `paged root ${i}`,
+      read: true,
+      subject: `Response ${i}`,
+      body: `A unique response ${i}`,
+      date: new Date(Date.UTC(2026, 9, 14) + i * 2000 + 1000).toISOString(),
+    },
+  ]).flat();
+  await setup(page, true, state.discussions, messages);
+  await expect(page.locator('.message-row')).toHaveCount(200);
+  await expect(page.locator('.message-row').first()).toContainText('Response 229');
+  await click(page.getByRole('button', { name: 'Show older messages', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(230);
+  const search = page.getByRole('searchbox', { name: 'Search messages', exact: true });
+  await search.fill('A unique response 0');
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.body-text')).toHaveCount(2);
+  await search.fill('');
+  await expect(page.locator('.message-row')).toHaveCount(200);
+  await page.getByRole('combobox', { name: 'Message view', exact: true }).selectOption('messages');
+  await expect(page.locator('.message-row')).toHaveCount(200);
+  await click(page.getByRole('button', { name: 'Show older messages', exact: true }));
+  await expect(page.locator('.message-row')).toHaveCount(400);
+});
+
+test('bounds long conversation bodies and keeps a selected message outside the current page reachable', async ({
+  page,
+}) => {
+  const messages = Array.from({ length: 150 }, (_, i) => ({
+    ...message,
+    id: `long-${i}`,
+    msgid: `long ${i}`,
+    replyId: i ? `long ${i - 1}` : '',
+    body: `Long body ${i}`,
+    read: true,
+    date: new Date(Date.UTC(2026, 9, 14) + i * 1000).toISOString(),
+  }));
+  await setup(page, true, state.discussions, messages);
+  await expect(page.locator('.message-row')).toHaveCount(1);
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.body-text')).toHaveCount(100);
+  await page.getByRole('combobox', { name: 'Sort messages', exact: true }).selectOption('oldest');
+  await expect(page.locator('.body-text')).toHaveCount(101);
+  await expect(page.locator('[data-message-id="long-149"] .selected-label')).toBeVisible();
+  await click(page.locator('[data-message-id="long-0"] .thread-select'));
+  await expect(page.locator('.body-text')).toHaveCount(100);
+  await click(page.getByRole('button', { name: /^Show more of this conversation/ }));
+  await expect(page.locator('.body-text')).toHaveCount(150);
+  await expect(page.locator('.body-text').first()).toHaveText('Long body 0');
+  await expect(page.locator('.body-text').last()).toHaveText('Long body 149');
+});
+
+test('keeps grouping usable when preferences are unavailable and leaves action folders individual', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => {
+      throw new Error('Preferences unavailable');
+    };
+    Storage.prototype.setItem = () => {
+      throw new Error('Preferences unavailable');
+    };
+  });
+  const messages = groupedFixture();
+  for (const folder of ['drafts', 'outbox', 'trash'] as const)
+    messages.push(
+      ...[0, 1].map((i) => ({
+        ...message,
+        id: `${folder}-${i}`,
+        msgid: `${folder} ${i}`,
+        replyId: i ? `${folder} 0` : '',
+        folder,
+        subject: `${folder} ${i}`,
+      })),
+    );
+  await setup(page, true, state.discussions, messages);
+  const view = page.getByRole('combobox', { name: 'Message view', exact: true });
+  for (const folder of ['Drafts', 'Outbox', 'Trash']) {
+    await click(page.getByRole('button', { name: new RegExp(`^${folder}`) }));
+    await expect(view).toBeDisabled();
+    await expect(view).toHaveValue('messages');
+    await expect(page.locator('.message-row')).toHaveCount(2);
+  }
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  await expect(view).toBeEnabled();
+  await expect(view).toHaveValue('conversations');
+  await view.selectOption('messages');
+  await expect(page.locator('.message-row')).toHaveCount(4);
+  await page.reload();
+  await expect(view).toHaveValue('conversations');
 });

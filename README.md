@@ -23,8 +23,9 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 
 - Import a provider-issued account and keep credentials in OS-protected storage.
 - Direct messages and public discussions, with a three-pane reader.
+- Related replies are grouped into **Conversations** by default. The **View** menu also offers **Individual messages** and remembers your choice on this device. Threads use explicit reply links within the same discussion, including sent replies and branches; matching subjects alone never combine unrelated mail.
 - Messages default to **Newest first**, including the messages displayed together inside an open conversation and its reply links. The **Sort** menu also offers **Oldest first** and remembers your choice on this device across folders, discussions, and restarts.
-- Large folders initially show 200 messages; **Show older messages** (or **Show newer messages** when sorted oldest first) loads more, while search covers every message in the selected folder.
+- Large folders initially show 200 rows (conversations or individual messages); **Show older messages** (or **Show newer messages** when sorted oldest first) loads more, while search covers every message in the selected folder. Long grouped conversations initially display 100 bodies, with **Show more of this conversation** to continue.
 - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
 - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
 - Send & receive manually or periodically while the application is running.
@@ -40,6 +41,14 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Back up the local mailbox using Account → Back up mailbox.
 
 This release supports **one point account and its matching boss node**. Other FTN domains are supported in the account format, but messages cannot cross domains. New accounts cannot replace an installed account inside the UI yet.
+
+### Conversation view
+
+Inbox, discussion, Sent, and Starred lists can group replies. Each row shows the conversation's message count and unread count for the selected folder. Rows sort by the latest activity in that folder, in your chosen direction. Search and **Unread only** keep a conversation when at least one message in the folder matches both filters; opening it selects the newest matching message and displays the linked conversation for context, including sent replies.
+
+Select an author inside a grouped conversation to choose a particular message. Reply, private reply, star, read/unread, details, and delete apply to that selected message. Opening a conversation marks only the selected message read. Deleting a message moves only that message to Trash; the rest of the conversation stays available. Drafts, Outbox, and Trash always show individual messages so editing, cancellation, restoration, and permanent deletion remain explicit. The view preference returns when you switch back to another folder.
+
+Messages without reply links remain separate. Repeated ambiguous message identifiers are not used to guess a parent. Both view and sort controls continue working for the current session if local preference storage is unavailable. No mailbox conversion or database migration is required.
 
 ## Build packages
 

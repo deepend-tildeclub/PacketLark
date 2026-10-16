@@ -1,6 +1,16 @@
 import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
 import './style.css';
-import { mailboxCounts, messageSort, reconcileChildren, sortMessages } from './mailbox.js';
+import {
+  indexConversations,
+  mailboxCounts,
+  mailboxRows,
+  messageSort,
+  messageView,
+  reconcileChildren,
+  sortMessages,
+  type Conversation,
+  type MailboxRow,
+} from './mailbox.js';
 import { visibleDiscussions } from '../core/areas.js';
 import { defaultNotifications } from '../core/notifications.js';
 declare global {
@@ -10,11 +20,18 @@ declare global {
 }
 const api = window.packetlark;
 const sortPreference = 'packetlark.messageSort';
+const viewPreference = 'packetlark.messageView';
 let sortOrder = messageSort(null);
+let view = messageView(null);
 try {
   sortOrder = messageSort(localStorage.getItem(sortPreference));
 } catch {
   // Keep the mailbox usable when browser preference storage is unavailable.
+}
+try {
+  view = messageView(localStorage.getItem(viewPreference));
+} catch {
+  // Grouping remains available for this session without preference storage.
 }
 let state: State,
   folder = 'inbox',
@@ -31,7 +48,12 @@ let sidebarKey = '',
   readerSelection = '',
   listViewKey = '';
 let rowLimit = 200;
+let threadLimit = 100;
+let threadViewKey = '';
 const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
+let currentRows = new Map<string, MailboxRow>();
+let indexedMessages: Message[] | undefined;
+let conversations = new Map<string, Conversation>();
 let moreMessages: HTMLButtonElement | undefined;
 let renderDiscussions: (() => void) | null = null;
 let pendingNotification: string | undefined;
@@ -140,6 +162,27 @@ sortMenu.addEventListener('change', () => {
   reader.scrollTop = 0;
 });
 sortLabel.append(sortMenu);
+const viewLabel = e('label', 'message-sort', 'View ');
+const viewMenu = e('select');
+viewMenu.setAttribute('aria-label', 'Message view');
+for (const [value, title] of [
+  ['conversations', 'Conversations'],
+  ['messages', 'Individual messages'],
+]) {
+  const option = e('option', '', title);
+  option.value = value;
+  viewMenu.append(option);
+}
+viewMenu.addEventListener('change', () => {
+  view = messageView(viewMenu.value);
+  try {
+    localStorage.setItem(viewPreference, view);
+  } catch {
+    // Keep the current view usable even if saving the preference fails.
+  }
+  renderMailbox();
+});
+viewLabel.append(viewMenu);
 listPanel.append(listHeading, messageList);
 workspace.append(sidebar, listPanel, reader);
 const footer = e('footer', 'statusbar');
@@ -329,7 +372,12 @@ function renderMailbox() {
   const title = area
     ? state.areas.find((a) => a.tag === area)?.name || area
     : folder[0].toUpperCase() + folder.slice(1);
-  const viewKey = JSON.stringify([folder, query, unreadOnly, sortOrder]);
+  const canGroup = !['drafts', 'outbox', 'trash'].includes(folder);
+  const grouped = canGroup && view === 'conversations';
+  viewMenu.value = canGroup ? view : 'messages';
+  viewMenu.disabled = !canGroup;
+  viewMenu.title = canGroup ? '' : 'Drafts, Outbox, and Trash show individual messages.';
+  const viewKey = JSON.stringify([folder, query, unreadOnly, sortOrder, grouped]);
   const changedView = viewKey !== listViewKey;
   if (changedView) {
     rowLimit = 200;
@@ -350,12 +398,17 @@ function renderMailbox() {
     );
     filter.setAttribute('aria-pressed', String(unreadOnly));
     const controls = e('div', 'list-controls');
-    controls.append(filter, sortLabel);
+    controls.append(filter, sortLabel, viewLabel);
     listHeading.append(controls);
   }
   const term = query.toLowerCase();
-  const messages = sortMessages(
+  if (grouped && indexedMessages !== state.messages) {
+    indexedMessages = state.messages;
+    conversations = indexConversations(state.messages);
+  }
+  const rows = mailboxRows(
     state.messages.filter((m) => {
+      if (m.internal) return false;
       const match = area
         ? m.area === area && m.folder === 'inbox'
         : folder === 'starred'
@@ -363,16 +416,24 @@ function renderMailbox() {
           : folder === 'inbox'
             ? m.folder === 'inbox' && !m.area
             : m.folder === folder;
-      return (
-        match &&
-        (!unreadOnly || !m.read) &&
-        (!term || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(term))
-      );
+      return match;
     }),
+    conversations,
+    grouped,
     sortOrder,
+    (m) =>
+      (!unreadOnly || !m.read) &&
+      (!term || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(term)),
+  );
+  currentRows = new Map(rows.map((row) => [row.key, row]));
+  const selectedConversation = grouped ? conversations.get(selection) : undefined;
+  const selectedRow = rows.find((row) =>
+    selectedConversation
+      ? conversations.get(row.message.id) === selectedConversation
+      : row.message.id === selection,
   );
   const children: Node[] = [];
-  if (!messages.length)
+  if (!rows.length)
     children.push(
       e(
         'div',
@@ -384,25 +445,28 @@ function renderMailbox() {
             : 'Nothing here yet.',
       ),
     );
-  const visible = messages.slice(0, rowLimit);
-  const visibleIds = new Set(visible.map((m) => m.id));
+  const visible = rows.slice(0, rowLimit);
+  const visibleIds = new Set(visible.map((row) => row.key));
   for (const id of rowCache.keys()) if (!visibleIds.has(id)) rowCache.delete(id);
-  for (const m of visible) {
+  for (const row of visible) {
+    const m = row.message;
     const key = JSON.stringify([
       m.from,
       m.to,
       m.folder,
       m.trash?.folder,
       m.subject,
-      m.starred,
+      row.starred,
+      row.total,
+      row.total > 1 ? row.unread : 0,
       m.body.slice(0, 140),
-      m.date,
+      row.latest.date,
       !!m.error,
     ]);
-    let cached = rowCache.get(m.id);
+    let cached = rowCache.get(row.key);
     if (!cached) {
       const node = button('', () => {
-        const live = state.messages.find((value) => value.id === m.id);
+        const live = currentRows.get(row.key)?.message;
         if (!live) return;
         selection = live.id;
         if (live.folder === 'drafts') openCompose({ ...live, replyId: live.replyId });
@@ -410,10 +474,10 @@ function renderMailbox() {
         renderMailbox();
       });
       cached = { key: '', node };
-      rowCache.set(m.id, cached);
+      rowCache.set(row.key, cached);
     }
     const b = cached.node;
-    const cls = `message-row ${selection === m.id ? 'selected ' : ''}${!m.read ? 'unread' : ''}`;
+    const cls = `message-row ${selectedRow === row ? 'selected ' : ''}${row.unread ? 'unread' : ''}`;
     if (b.className !== cls) b.className = cls;
     if (cached.key !== key) {
       cached.key = key;
@@ -424,13 +488,21 @@ function renderMailbox() {
           'sender',
           (m.folder === 'trash' ? m.trash?.folder : m.folder) === 'inbox' ? m.from : `To: ${m.to}`,
         ),
-        e('time', '', date(m.date)),
+        e('time', '', date(row.latest.date)),
       );
       b.replaceChildren(
         top,
-        e('div', 'subject', `${m.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
+        e('div', 'subject', `${row.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
         e('p', 'preview', m.body.slice(0, 140).replace(/\n/g, ' ')),
       );
+      if (row.total > 1)
+        b.append(
+          e(
+            'span',
+            'conversation-count',
+            `${row.total} messages${row.unread ? ` · ${row.unread} unread` : ''}`,
+          ),
+        );
       if (m.folder === 'outbox')
         b.append(
           e(
@@ -442,7 +514,7 @@ function renderMailbox() {
     }
     children.push(b);
   }
-  if (messages.length > rowLimit) {
+  if (rows.length > rowLimit) {
     moreMessages ??= button(
       'Show older messages',
       () => {
@@ -456,12 +528,26 @@ function renderMailbox() {
   }
   reconcileChildren(messageList, children);
   if (changedView) messageList.scrollTop = 0;
-  const selected = messages.find((m) => m.id === selection);
+  const selected = selectedRow ? state.messages.find((m) => m.id === selection) : undefined;
   if (selected) {
-    const { thread, responses } = conversation(selected);
+    const { thread: completeThread, responses } =
+      grouped && selectedConversation
+        ? { thread: sortMessages(selectedConversation.messages, sortOrder), responses: [] }
+        : conversation(selected);
+    const nextThreadView = JSON.stringify([selectedConversation?.key, sortOrder, grouped]);
+    if (threadViewKey !== nextThreadView) {
+      threadViewKey = nextThreadView;
+      threadLimit = 100;
+    }
+    let thread = grouped ? completeThread.slice(0, threadLimit) : completeThread;
+    // A notification or author selection must remain reachable outside the first page.
+    if (grouped && !thread.some((part) => part.id === selected.id))
+      thread = sortMessages([...thread, selected], sortOrder);
     const key = JSON.stringify([
+      grouped,
+      completeThread.length,
       { ...selected, read: undefined, starred: undefined },
-      thread.map((m) => [m.id, m.from, m.body, m.date]),
+      thread.map((m) => [m.id, m.from, m.body, m.date, m.subject]),
       responses.map((m) => [m.id, m.from, m.subject]),
     ]);
     if (readerKey !== key) {
@@ -469,7 +555,7 @@ function renderMailbox() {
       readerSelection = selected.id;
       readerKey = key;
       reader.replaceChildren();
-      renderMessage(selected, thread, responses);
+      renderMessage(selected, thread, responses, grouped, completeThread.length);
       reader.scrollTop = scroll;
     }
     const star = reader.querySelector<HTMLButtonElement>('[data-message-flag="star"]');
@@ -521,7 +607,13 @@ function conversation(m: Message) {
     responses: sortMessages(responses, sortOrder),
   };
 }
-function renderMessage(m: Message, thread: Message[], responses: Message[]) {
+function renderMessage(
+  m: Message,
+  thread: Message[],
+  responses: Message[],
+  grouped = false,
+  total = thread.length,
+) {
   const head = e('div', 'reader-heading');
   head.append(
     e(
@@ -632,14 +724,56 @@ function renderMessage(m: Message, thread: Message[], responses: Message[]) {
       ),
     );
   if (m.error) reader.append(e('div', 'notice warning', m.error));
+  if (grouped && total > 1)
+    reader.append(
+      e(
+        'p',
+        'conversation-note',
+        `${total} messages. Select an author below to act on that message. Only the selected message is marked read.`,
+      ),
+    );
   for (const part of thread) {
     const article = e('article', 'message-body');
-    if (thread.length > 1)
-      article.append(e('h2', 'thread-author', `${part.from} · ${date(part.date)}`));
+    article.dataset.messageId = part.id;
+    if (thread.length > 1) {
+      const author = e('h2', 'thread-author');
+      if (grouped) {
+        const select = button(
+          `${part.from} · ${date(part.date)}`,
+          () => {
+            const scroll = reader.scrollTop;
+            selection = part.id;
+            if (!part.read) void action(() => api.mark(part.id, { read: true }));
+            renderMailbox();
+            reader.scrollTop = scroll;
+            reader
+              .querySelector<HTMLButtonElement>('.thread-select[aria-pressed="true"]')
+              ?.focus({ preventScroll: true });
+          },
+          'thread-select',
+        );
+        select.setAttribute('aria-pressed', String(part.id === m.id));
+        select.title = part.subject || '(No subject)';
+        author.append(select);
+        if (part.id === m.id) author.append(e('span', 'selected-label', 'Selected message'));
+      } else author.textContent = `${part.from} · ${date(part.date)}`;
+      article.append(author);
+    }
     const text = e('pre', 'body-text', part.body);
     article.append(text);
     reader.append(article);
   }
+  if (grouped && thread.length < total)
+    reader.append(
+      button(
+        `Show more of this conversation (${thread.length} of ${total} shown)`,
+        () => {
+          threadLimit += 100;
+          renderMailbox();
+        },
+        'load-more',
+      ),
+    );
   if (responses.length) {
     const box = e('div', 'thread-links');
     box.append(e('h2', '', 'Replies'));

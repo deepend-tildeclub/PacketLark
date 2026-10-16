@@ -1,5 +1,25 @@
 # 0.1.0 validation record
 
+## Conversation grouping
+
+Based on PacketLark `main` commit `faa4316`. Conversation view is a renderer-only
+change with no dependencies, mailbox migrations, transport changes, or CI workflow
+changes. The existing Windows/Linux jobs discover the new core and UI tests.
+TypeScript, lint/format checks, the production build, 94 core tests, 35 Electron
+renderer tests, and all 24 provisioning tests pass locally.
+
+Regression coverage checks default/persisted view preferences, individual-message
+navigation, explicit reply links, branches, sent replies, missing parents, cycles,
+ambiguous identifiers, area boundaries, hidden controls, action-folder isolation,
+folder-scoped search/unread filters, last-activity sorting, aggregate counts,
+notification navigation, selecting individual messages for actions, single-message
+delete/restore, preserving a row when replies arrive, and bounded list/body
+pagination. A 20,000-message chain exercises iterative indexing without recursion.
+Existing mailbox, performance, sorting, discussion, notification, and provisioning
+checks remain enabled. Desktop UI checks run in headless Electron here; native
+Windows/Linux input and visual acceptance remain the responsibility of their CI
+runners and target desktops.
+
 ## Native desktop notifications
 
 Based on PacketLark `main` commit `99b719d`. TypeScript, lint/format checks,
