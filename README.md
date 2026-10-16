@@ -64,6 +64,14 @@ The optional **Start PacketLark when I sign in** uses Windows login settings or 
 
 **Quit PacketLark** saves any pending draft before exiting. If saving fails, the window stays open with the text intact. Quitting stops background mail checks; this is a desktop application, not a system service. Native tray and taskbar badge appearance depends on the desktop shell.
 
+## Advanced connection setup
+
+Importing a sysop-provided `.packetlark` file remains the primary setup path. Without a file, choose **Advanced setup** on the welcome screen, under **Account**, or in **Preferences → Connection setup**. This is for an **existing point account**: it does not create or register a point on the BBS, and version 1 still requires a point address with its matching boss node.
+
+Enter your name, provider/BBS label, assigned point address, boss-node address, BinkP hostname/IP and port, and session password. Optional packet and AreaFix passwords must match the boss-node configuration; a packet password is at most eight printable ASCII characters without spaces. Leave an optional password empty only if it is not required. Choose the polling interval and outgoing encoding as agreed with your provider. Enable certificate-verified implicit TLS only for a server endpoint that offers it, using that endpoint's port; otherwise BinkP requires CRAM-MD5 and message traffic is not encrypted.
+
+**Set up account** validates and saves through the same keyring-protected account installer used by imports. It does not connect immediately: use **Send & receive** when ready. With an AreaFix password, open **Manage discussions → Get available discussions** to find and join areas. Validation or keyring failures leave the form available to correct/retry. Existing accounts cannot be overwritten, and passwords are never returned in public mailbox state.
+
 ## Build packages
 
 ```sh
@@ -108,7 +116,7 @@ This is a **point link**, not a Synchronet terminal-login user. No BBS user reco
 
 Notifications use the operating system's own UI: Windows toasts/Notification Center and Linux's desktop notification service through Electron/libnotify. They are enabled by default for direct messages and discussion posts while PacketLark is open in the background. Mail collected in one exchange is grouped into one alert; clicking it brings PacketLark forward and opens the latest eligible message. An open draft stays intact. Existing unread messages do not generate a startup alert, and duplicates, consumed AreaFix traffic, and hidden ADM discussions do not generate alerts.
 
-Open **Account → Desktop notifications** to turn alerts off, exclude discussion posts, or hide sender/subject previews. Message bodies are never included in notifications. Preferences are saved with the mailbox and survive restarts. **Test notification** requests an alert even while the app has focus; sound, banners, lock-screen display, and Do Not Disturb are controlled by the OS. Closing PacketLark still exits the app and stops polling.
+Open **Preferences → Desktop notifications** to turn alerts off, exclude discussion posts, or hide sender/subject previews. Message bodies are never included in notifications. Preferences are saved with the mailbox and survive restarts. **Test notification** requests an alert even while the app has focus; sound, banners, lock-screen display, and Do Not Disturb are controlled by the OS. Closing the window exits and stops polling unless you have enabled background operation in Preferences.
 
 The Windows NSIS and ZIP builds retain the existing application ID and use a stable toast activation identity; the current Electron runtime registers the required per-user shortcut/activation information when its notification presenter is initialized. A moved ZIP build needs to be launched again from its new location. Development runs use a separate identity to avoid replacing the installed app's toast activation registration. Linux uses the existing `packetlark.desktop` identity and a bundled notification icon. The `.deb` package already depends on `libnotify4`; other Linux installs also need libnotify and a running desktop notification server. Hyprland setups need a notification daemon such as mako or dunst. The app does not install or replace your desktop's notification service.
 

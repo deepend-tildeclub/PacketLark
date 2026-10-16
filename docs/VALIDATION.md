@@ -1,5 +1,31 @@
 # 0.1.0 validation record
 
+## Preferences notifications and manual point setup
+
+Based on PacketLark `main` commit `36d7783`. Notification controls move from
+Account to Preferences, including their saved choices and native test button.
+Account-file import remains the primary welcome action. Advanced setup is an
+optional route from Welcome, Account, or Preferences before an account is installed.
+It uses the existing strict profile schema, credential sealing, atomic installation,
+poll scheduler, and one-account protection shared with file import. No transport,
+dependency, account format, mailbox schema, or provisioning changes are required.
+
+Validation includes TypeScript, ESLint, Prettier, 108 core tests, 43 Electron UI
+tests, and the production build. Regression coverage includes existing imports,
+legacy accounts, notifications, reading preferences, background behavior, reply
+grouping, message actions, sorting, and performance. Added checks exercise optional
+setup navigation, cancelling without installing, explicit TLS/port/encoding/interval,
+empty optional passwords, mismatched boss rejection, keyring-failure retry,
+unchanged preferences, durable restart, and rejection of account replacement.
+
+The production desktop IPC smoke exercises the new isolated preload operation,
+invalid-profile rejection without a mailbox change, secret-free public state, and
+account installation/replacement protection when OS encryption is available. Without
+a usable keyring it verifies refusal to install, keeping normal credential protection.
+Locally this runs with an external single-instance/headless wrapper; native Windows
+and Linux desktop integration remains covered by the existing CI jobs and requires
+target-desktop acceptance. No real BBS is contacted by these checks.
+
 ## Reading polish, preferences, and background operation
 
 Based on PacketLark `main` commit `b82b8d7`. Adds saved reading/background

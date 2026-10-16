@@ -238,6 +238,7 @@ export type RuntimeUpdate = { revision: number; syncing: boolean; status: string
 export type Api = {
   state(): Promise<State>;
   importAccount(): Promise<boolean>;
+  setupAccount(value: Profile): Promise<void>;
   sync(): Promise<void>;
   saveDraft(value: Compose): Promise<string>;
   queue(value: Compose): Promise<string>;

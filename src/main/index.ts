@@ -251,11 +251,14 @@ async function importFile(filename: string) {
     detail: `Point: ${profile.address}\nProvider: ${profile.uplink.host}:${profile.uplink.port}\nTransport: ${profile.uplink.tls ? 'certificate-verified TLS' : 'BinkP with CRAM-MD5; message traffic is not encrypted'}\n\nOnly import account files from a provider you trust.`,
   });
   if (result.response !== 0) return false;
-  store.install(profile);
+  installAccount(profile);
+  return true;
+}
+function installAccount(value: unknown) {
+  store.install(profileSchema.parse(value));
   status = 'Account ready. Send & receive to check your messages.';
   schedule();
   emit();
-  return true;
 }
 function schedule() {
   if (timer) clearInterval(timer);
@@ -350,6 +353,7 @@ function register() {
     return result.canceled ? false : await importFile(result.filePaths[0]);
   });
   handle('sync', sync);
+  handle('setupAccount', installAccount);
   handle('reading', (value) => {
     store.setReading(readingSettingsSchema.parse(value));
     emit();

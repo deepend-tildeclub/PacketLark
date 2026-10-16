@@ -1,4 +1,5 @@
 import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
+import { profileSchema } from '../core/model.js';
 import './style.css';
 import {
   indexConversations,
@@ -356,6 +357,7 @@ function renderMailbox() {
         'primary large',
       ),
       e('p', 'muted', 'Ask your provider for a .packetlark account file.'),
+      button('Advanced setup', () => manualSetupDialog()),
     );
     reader.append(welcome);
     return;
@@ -1179,7 +1181,8 @@ function openCompose(initial: Partial<Compose> = {}) {
   if (initial.body) text.setSelectionRange(0, 0);
 }
 function preferencesDialog() {
-  const { body } = dialog('Preferences');
+  const { body, close } = dialog('Preferences');
+  notificationPreferences(body);
   const reading = e('fieldset', 'notification-settings');
   reading.append(e('legend', '', 'Reading'));
   const defaults = state.reading || defaultReading;
@@ -1332,16 +1335,32 @@ function preferencesDialog() {
       e('p', 'notice', 'Your desktop tray is unavailable. Closing the window will quit normally.'),
     );
   body.append(desktop);
+  if (!state.account) {
+    const connection = e('fieldset', 'notification-settings');
+    connection.append(
+      e('legend', '', 'Connection setup'),
+      e('p', '', 'Importing a provider-supplied account file is the easiest way to get started.'),
+      button('Import account', () => void action(() => api.importAccount()), 'primary'),
+      button('Advanced setup', () => {
+        close();
+        manualSetupDialog();
+      }),
+    );
+    body.append(connection);
+  }
 }
 function accountDialog() {
-  const { body } = dialog('Your account');
+  const { body, close } = dialog('Your account');
   const p = state.account;
   if (!p) {
     body.append(
       e('p', '', 'Import the account file supplied by your provider.'),
       button('Import account', () => void action(() => api.importAccount()), 'primary'),
+      button('Advanced setup', () => {
+        close();
+        manualSetupDialog();
+      }),
     );
-    notificationPreferences(body);
     return;
   }
   for (const [label, value] of [
@@ -1366,7 +1385,6 @@ function accountDialog() {
     ),
     button('Back up mailbox', () => void action(() => api.backup())),
   );
-  notificationPreferences(body);
   if (state.storageWarning)
     body.append(
       e(
@@ -1375,6 +1393,158 @@ function accountDialog() {
         'Unlock your operating system keyring before importing or using an account.',
       ),
     );
+}
+function manualSetupDialog() {
+  if (state.account) return;
+  const { box, body, close } = dialog('Advanced connection setup');
+  body.append(
+    e(
+      'p',
+      '',
+      'Already have a point account? Enter the connection details agreed with your boss-node operator. This does not register or create a point on the BBS.',
+    ),
+    e(
+      'p',
+      'muted',
+      'If your provider supplied an account file, use Import account instead. PacketLark currently supports a point and its matching boss node.',
+    ),
+  );
+  const form = e('form');
+  const fields = e('fieldset', 'notification-settings');
+  fields.append(e('legend', '', 'Point account'));
+  const name = field(fields, 'Your name');
+  const provider = field(fields, 'Provider / BBS name');
+  const point = field(fields, 'Your point address');
+  point.placeholder = '1:342/11.100@fidonet';
+  const boss = field(fields, 'Boss-node address');
+  boss.placeholder = '1:342/11@fidonet';
+  const host = field(fields, 'BinkP server hostname or IP');
+  const port = field(fields, 'BinkP port', '24554', 'number');
+  port.min = '1';
+  port.max = '65535';
+  port.step = '1';
+  const tlsLabel = e('label', 'notification-option');
+  const tls = e('input');
+  tls.type = 'checkbox';
+  tlsLabel.append(tls, e('span', '', 'Use certificate-verified implicit TLS'));
+  fields.append(
+    tlsLabel,
+    e(
+      'p',
+      'muted',
+      'Enable TLS only if your provider offers an implicit TLS endpoint; use its assigned port. Plain BinkP uses CRAM-MD5 authentication but does not encrypt message traffic.',
+    ),
+  );
+  const session = field(fields, 'Session password', '', 'password');
+  const packet = field(fields, 'Packet password (optional, up to 8 characters)', '', 'password');
+  const areaFix = field(fields, 'AreaFix password (optional)', '', 'password');
+  box.addEventListener('close', () => {
+    session.value = packet.value = areaFix.value = '';
+  });
+  for (const input of [session, packet, areaFix]) {
+    input.autocomplete = 'new-password';
+    input.spellcheck = false;
+    input.maxLength = input === packet ? 8 : 128;
+  }
+  fields.append(e('p', 'muted', 'Passwords use printable ASCII characters without spaces.'));
+  name.maxLength = 35;
+  provider.maxLength = 80;
+  point.maxLength = boss.maxLength = 80;
+  host.maxLength = 253;
+  for (const input of [name, provider, point, boss, host, port, session]) input.required = true;
+  const poll = field(fields, 'Check for mail every (minutes)', '10', 'number');
+  poll.min = '1';
+  poll.max = '1440';
+  poll.step = '1';
+  poll.required = true;
+  const charsetLabel = e('label', 'field');
+  const charset = e('select');
+  for (const value of ['UTF-8', 'CP437', 'CP850', 'CP866', 'WINDOWS-1252'])
+    charset.append(new Option(value, value));
+  charsetLabel.append(e('span', '', 'Outgoing encoding'), charset);
+  fields.append(
+    charsetLabel,
+    e(
+      'p',
+      'muted',
+      'Leave optional passwords empty only if your provider does not require them. An AreaFix password enables the discussion browser and subscriptions. After setup, use Manage discussions → Get available discussions to request available areas.',
+    ),
+  );
+  const error = e('p', 'notice warning');
+  error.setAttribute('role', 'alert');
+  error.hidden = true;
+  const save = e('button', 'primary', 'Set up account');
+  save.type = 'submit';
+  fields.append(save);
+  form.append(fields, error);
+  let saving = false;
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (saving || !form.reportValidity()) return;
+    const result = profileSchema.safeParse({
+      format: 'packetlark-account',
+      version: 1,
+      provider: provider.value.trim(),
+      name: name.value.trim(),
+      address: point.value.trim(),
+      uplink: {
+        address: boss.value.trim(),
+        host: host.value.trim(),
+        port: Number(port.value),
+        tls: tls.checked,
+        sessionPassword: session.value,
+        packetPassword: packet.value,
+        areaFixPassword: areaFix.value,
+      },
+      areas: [],
+      pollMinutes: Number(poll.value),
+      charset: charset.value,
+    });
+    if (!result.success) {
+      const labels: Record<string, string> = {
+        provider: 'Provider / BBS name',
+        name: 'Your name',
+        address: 'Your point address',
+        'uplink.address': 'Boss-node address',
+        'uplink.host': 'BinkP server',
+        'uplink.port': 'BinkP port',
+        'uplink.sessionPassword': 'Session password',
+        'uplink.packetPassword': 'Packet password',
+        'uplink.areaFixPassword': 'AreaFix password',
+        pollMinutes: 'Check interval',
+        charset: 'Outgoing encoding',
+      };
+      error.textContent = result.error.issues
+        .map((issue) => {
+          const label = labels[issue.path.join('.')];
+          return label ? `Check ${label}.` : issue.message;
+        })
+        .join(' ');
+      error.hidden = false;
+      return;
+    }
+    saving = true;
+    fields.disabled = true;
+    error.hidden = true;
+    void (async () => {
+      try {
+        await api.setupAccount(result.data);
+        session.value = packet.value = areaFix.value = '';
+        close();
+        await refresh();
+        notify('Account ready. Use Send & receive to check your messages.');
+      } catch (failure) {
+        error.textContent =
+          failure instanceof Error ? failure.message : 'Could not set up the account.';
+        error.hidden = false;
+      } finally {
+        fields.disabled = false;
+        saving = false;
+      }
+    })();
+  });
+  body.append(form);
+  name.focus();
 }
 function notificationPreferences(body: HTMLElement) {
   const group = e('fieldset', 'notification-settings');

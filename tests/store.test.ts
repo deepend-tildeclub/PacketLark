@@ -44,6 +44,53 @@ describe('durable mailbox', () => {
     expect(() => s.install(profile)).toThrow('already');
     s.close();
   });
+  it('installs a manual point without resetting preferences and persists its connection', async () => {
+    const s = await open();
+    s.setNotifications({ enabled: false, discussions: false, previews: false });
+    const manual = {
+      ...profile,
+      areas: [],
+      uplink: {
+        ...profile.uplink,
+        tls: true,
+        port: 24555,
+        packetPassword: '',
+        areaFixPassword: '',
+      },
+    };
+    expect(() => s.install({ ...manual, address: '1:123/999.100' })).toThrow();
+    expect(s.profile()).toBeNull();
+    s.install(manual);
+    const file = s.file;
+    s.close();
+    const reopened = await open(file);
+    expect(reopened.profile()).toEqual(manual);
+    expect(reopened.state().notifications?.enabled).toBe(false);
+    expect(reopened.state().areas).toEqual([]);
+    expect(reopened.pending()).toEqual([]);
+    expect(() => reopened.install(profile)).toThrow('already installed');
+    expect(reopened.profile()).toEqual(manual);
+    reopened.close();
+  });
+  it('leaves the mailbox unchanged when the keyring cannot seal a new account', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'packetlark-keyring-'));
+    dirs.push(dir);
+    const s = await Store.open(
+      path.join(dir, 'mailbox.sqlite'),
+      wasm,
+      () => {
+        throw new Error('Keyring locked');
+      },
+      (value) => value,
+    );
+    const before = s.backup();
+    const revision = s.revision;
+    expect(() => s.install(profile)).toThrow('Keyring locked');
+    expect(s.backup()).toEqual(before);
+    expect(s.revision).toBe(revision);
+    expect(s.state().account).toBeNull();
+    s.close();
+  });
   it('saves incomplete drafts and reopens them after restart', async () => {
     const s = await open();
     s.install(profile);

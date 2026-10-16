@@ -8,6 +8,7 @@ import type {
   NotificationSettings,
   ReadingSettings,
   DesktopSettings,
+  Profile,
   RuntimeUpdate,
   State,
 } from '../../src/core/model.js';
@@ -63,6 +64,9 @@ declare global {
       requestQuit(): Promise<boolean>;
       failDraftSave(value: boolean): void;
       setTraySupported(value: boolean): void;
+      manualProfile(): Profile | null;
+      imports(): number;
+      failSetup(value: boolean): void;
     };
   }
 }
@@ -130,6 +134,9 @@ async function setup(
       let notificationTests = 0;
       let prepareQuit: (() => Promise<boolean>) | undefined;
       let draftSaveFails = false;
+      let manualProfile: Profile | null = null;
+      let imports = 0;
+      let setupFails = false;
       const emit = (dataChanged = true) => {
         if (dataChanged) data.revision = (data.revision || 0) + 1;
         changed.forEach((cb) =>
@@ -137,6 +144,11 @@ async function setup(
         );
       };
       window.packetlarkTest = {
+        manualProfile: () => manualProfile,
+        imports: () => imports,
+        failSetup: (value) => {
+          setupFails = value;
+        },
         requestQuit: async () => (prepareQuit ? prepareQuit() : false),
         failDraftSave: (value) => {
           draftSaveFails = value;
@@ -192,7 +204,27 @@ async function setup(
               },
             });
           },
-          importAccount: async () => true,
+          importAccount: async () => {
+            imports++;
+            return true;
+          },
+          setupAccount: async (value: Profile) => {
+            if (setupFails) throw new Error('Unlock your operating system keyring.');
+            if (data.account) throw new Error('An account is already installed.');
+            manualProfile = structuredClone(value);
+            data.account = {
+              name: value.name,
+              provider: value.provider,
+              address: value.address,
+              host: value.uplink.host,
+              port: value.uplink.port,
+              tls: value.uplink.tls,
+              pollMinutes: value.pollMinutes,
+              charset: value.charset,
+            };
+            data.areas = value.areas;
+            emit();
+          },
           sync: async () => {
             if (data.discussions.requestId) {
               if (listSent) {
@@ -1077,8 +1109,8 @@ test('hides cached ADM descriptions from the sidebar, composer, search and discu
 
 test('saves notification choices and can request a native test notification', async ({ page }) => {
   await setup(page);
-  await click(page.getByRole('button', { name: 'Account', exact: true }));
-  const account = page.getByRole('dialog', { name: 'Your account' });
+  await click(page.getByRole('button', { name: 'Preferences', exact: true }));
+  const account = page.getByRole('dialog', { name: 'Preferences', exact: true });
   const enabled = account.getByRole('checkbox', {
     name: 'Enable desktop notifications',
     exact: true,
@@ -1111,7 +1143,7 @@ test('saves notification choices and can request a native test notification', as
   await expect(discussions).toBeDisabled();
   await expect(previews).toBeDisabled();
   await click(account.getByRole('button', { name: 'Close', exact: true }));
-  await click(page.getByRole('button', { name: 'Account', exact: true }));
+  await click(page.getByRole('button', { name: 'Preferences', exact: true }));
   await expect(enabled).not.toBeChecked();
   await expect(previews).not.toBeChecked();
   await expect(discussions).not.toBeChecked();
@@ -1646,4 +1678,133 @@ test('flushes a draft immediately before quit and keeps the application open aft
   expect(state.messages.find((m) => m.folder === 'drafts')?.body).toBe(
     'Must survive an immediate tray quit',
   );
+});
+
+async function fillManualAccount(page: Page) {
+  const setup = page.getByRole('dialog', { name: 'Advanced connection setup', exact: true });
+  await setup.getByLabel('Your name', { exact: true }).fill('Experienced User');
+  await setup.getByLabel('Provider / BBS name', { exact: true }).fill('My BBS');
+  await setup.getByLabel('Your point address', { exact: true }).fill('1:342/11.105@fidonet');
+  await setup.getByLabel('Boss-node address', { exact: true }).fill('1:342/11@fidonet');
+  await setup
+    .getByLabel('BinkP server hostname or IP', { exact: true })
+    .fill('bbs.example.invalid');
+  await setup.getByLabel('Session password', { exact: true }).fill('SESSION-SECRET');
+  return setup;
+}
+
+test('keeps import primary and makes manual setup an optional Preferences route', async ({
+  page,
+}) => {
+  await setup(page, false);
+  const primary = page.getByRole('button', { name: 'Import your account file', exact: true });
+  await expect(primary).toHaveClass(/primary/);
+  await click(primary);
+  await expect.poll(() => page.evaluate(() => window.packetlarkTest.imports())).toBe(1);
+  await expect(primary).toBeVisible();
+  await click(page.getByRole('button', { name: 'Preferences', exact: true }));
+  const prefs = page.getByRole('dialog', { name: 'Preferences', exact: true });
+  await expect(prefs.getByRole('checkbox', { name: 'Enable desktop notifications' })).toBeVisible();
+  await expect(prefs.getByRole('button', { name: 'Import account', exact: true })).toHaveClass(
+    /primary/,
+  );
+  await click(prefs.getByRole('button', { name: 'Advanced setup', exact: true }));
+  await expect(prefs).toHaveCount(0);
+  const manual = await fillManualAccount(page);
+  await expect(manual).toContainText('This does not register or create a point on the BBS.');
+  await expect(manual.locator('input[type="password"]')).toHaveCount(3);
+  await click(manual.getByRole('button', { name: 'Close', exact: true }));
+  expect(await page.evaluate(() => window.packetlarkTest.manualProfile())).toBeNull();
+  await expect(primary).toBeVisible();
+});
+
+test('sets up a point with explicit TLS, passwords, interval and encoding without auto-connecting', async ({
+  page,
+}) => {
+  await setup(page, false);
+  await click(page.getByRole('button', { name: 'Advanced setup', exact: true }));
+  const manual = await fillManualAccount(page);
+  await manual.getByLabel('BinkP port', { exact: true }).fill('24555');
+  await manual
+    .getByRole('checkbox', { name: 'Use certificate-verified implicit TLS' })
+    .evaluate((box: HTMLInputElement) => {
+      box.checked = true;
+    });
+  await manual
+    .getByLabel('Packet password (optional, up to 8 characters)', { exact: true })
+    .fill('PACKET');
+  await manual.getByLabel('AreaFix password (optional)', { exact: true }).fill('AREAFIX');
+  await manual.getByLabel('Check for mail every (minutes)', { exact: true }).fill('25');
+  await manual
+    .getByRole('combobox', { name: 'Outgoing encoding', exact: true })
+    .selectOption('CP437');
+  await click(manual.getByRole('button', { name: 'Set up account', exact: true }));
+  await expect(manual).toHaveCount(0);
+  const saved = await page.evaluate(() => window.packetlarkTest.manualProfile());
+  expect(saved).toEqual({
+    format: 'packetlark-account',
+    version: 1,
+    name: 'Experienced User',
+    provider: 'My BBS',
+    address: '1:342/11.105@fidonet',
+    uplink: {
+      address: '1:342/11@fidonet',
+      host: 'bbs.example.invalid',
+      port: 24555,
+      tls: true,
+      sessionPassword: 'SESSION-SECRET',
+      packetPassword: 'PACKET',
+      areaFixPassword: 'AREAFIX',
+    },
+    areas: [],
+    pollMinutes: 25,
+    charset: 'CP437',
+  });
+  await expect(page.getByRole('button', { name: '↻ Send & receive', exact: true })).toBeEnabled();
+  const publicState = await page.evaluate(() => window.packetlark.state());
+  expect(publicState.lastSync).toBeNull();
+  expect(publicState.messages).toHaveLength(0);
+  expect(JSON.stringify(publicState)).not.toContain('SESSION-SECRET');
+  await click(page.getByRole('button', { name: 'Account', exact: true }));
+  const account = page.getByRole('dialog', { name: 'Your account', exact: true });
+  await expect(account).toContainText('bbs.example.invalid:24555');
+  await expect(account.getByRole('checkbox', { name: 'Enable desktop notifications' })).toHaveCount(
+    0,
+  );
+  await expect(account.getByRole('button', { name: 'Advanced setup' })).toHaveCount(0);
+});
+
+test('validates a matching point and boss and retains typed values after a keyring failure', async ({
+  page,
+}) => {
+  await setup(page, false);
+  await click(page.getByRole('button', { name: 'Account', exact: true }));
+  await click(
+    page
+      .getByRole('dialog', { name: 'Your account' })
+      .getByRole('button', { name: 'Advanced setup', exact: true }),
+  );
+  const manual = await fillManualAccount(page);
+  await manual.getByLabel('Boss-node address', { exact: true }).fill('1:342/12');
+  await click(manual.getByRole('button', { name: 'Set up account', exact: true }));
+  await expect(manual.getByRole('alert')).toContainText('matching boss node');
+  expect(await page.evaluate(() => window.packetlarkTest.manualProfile())).toBeNull();
+  await manual.getByLabel('Boss-node address', { exact: true }).fill('1:342/11');
+  await page.evaluate(() => window.packetlarkTest.failSetup(true));
+  await click(manual.getByRole('button', { name: 'Set up account', exact: true }));
+  await expect(manual.getByRole('alert')).toContainText('keyring');
+  await expect(manual.getByLabel('Session password', { exact: true })).toHaveValue(
+    'SESSION-SECRET',
+  );
+  await expect(manual.getByRole('button', { name: 'Set up account', exact: true })).toBeEnabled();
+  await page.evaluate(() => window.packetlarkTest.failSetup(false));
+  await click(manual.getByRole('button', { name: 'Set up account', exact: true }));
+  await expect(manual).toHaveCount(0);
+  const saved = await page.evaluate(() => window.packetlarkTest.manualProfile());
+  expect(saved?.uplink).toMatchObject({
+    port: 24554,
+    tls: false,
+    packetPassword: '',
+    areaFixPassword: '',
+  });
 });

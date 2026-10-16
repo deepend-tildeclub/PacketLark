@@ -136,6 +136,67 @@ try {
   });
   assert.deepEqual(clicks, [['missing-message']]);
   assert.equal(await window.evaluate(() => typeof window.require), 'undefined');
+  const manual = await window.evaluate(async () => {
+    const value = {
+      format: 'packetlark-account',
+      version: 1,
+      name: 'IPC smoke point',
+      provider: 'Test BBS',
+      address: '1:123/456.100@fidonet',
+      uplink: {
+        address: '1:123/456@fidonet',
+        host: 'bbs.example.invalid',
+        port: 24554,
+        tls: false,
+        sessionPassword: 'SMOKESESSION',
+        packetPassword: '',
+        areaFixPassword: '',
+      },
+      areas: [],
+      pollMinutes: 1440,
+      charset: 'UTF-8',
+    };
+    const initial = await window.packetlark.state();
+    let invalid = false;
+    try {
+      await window.packetlark.setupAccount({ ...value, address: '1:123/999.100' });
+    } catch {
+      invalid = true;
+    }
+    const afterInvalid = await window.packetlark.state();
+    let installed = false;
+    try {
+      await window.packetlark.setupAccount(value);
+      installed = true;
+    } catch (error) {
+      if (!initial.storageWarning) throw error;
+    }
+    const after = await window.packetlark.state();
+    let replacementRejected = false;
+    if (installed) {
+      try {
+        await window.packetlark.setupAccount({ ...value, name: 'Replacement' });
+      } catch {
+        replacementRejected = true;
+      }
+    }
+    return {
+      invalid,
+      unchanged: afterInvalid.revision === initial.revision && afterInvalid.account === null,
+      installed,
+      storageWarning: initial.storageWarning,
+      after,
+      replacementRejected,
+    };
+  });
+  assert.equal(manual.invalid, true);
+  assert.equal(manual.unchanged, true);
+  assert.equal(manual.installed, !manual.storageWarning);
+  if (manual.installed) {
+    assert.equal(manual.after.account.name, 'IPC smoke point');
+    assert.equal(manual.replacementRejected, true);
+  } else assert.equal(manual.after.account, null);
+  assert.equal(JSON.stringify(manual.after).includes('SMOKESESSION'), false);
   await window.screenshot({ path: 'test-results/desktop-welcome.png' });
   console.log(
     'Desktop smoke passed: preferences and validation, tray close/reopen where available, isolated IPC, notification navigation, and mailbox refresh.',

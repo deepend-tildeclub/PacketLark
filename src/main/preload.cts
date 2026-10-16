@@ -12,6 +12,7 @@ async function call<T>(name: string, ...args: unknown[]): Promise<T> {
 const api: Api = {
   state: () => call('state'),
   importAccount: () => call('import'),
+  setupAccount: (value) => call('setupAccount', value),
   sync: () => call('sync'),
   saveDraft: (v) => call('draft', v),
   queue: (v) => call('queue', v),
