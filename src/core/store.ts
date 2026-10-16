@@ -8,6 +8,10 @@ import {
   draftSchema,
   profileSchema,
   notificationSettingsSchema,
+  readingSettingsSchema,
+  desktopSettingsSchema,
+  type ReadingSettings,
+  type DesktopSettings,
   type NotificationSettings,
   type Compose,
   type Discussion,
@@ -20,6 +24,7 @@ import { buildPacket, draftMessage } from './packet.js';
 import type { MailFile } from './binkp.js';
 import { isAreaRequest, managementTag, parseAreaReply, type AreaReply } from './discussions.js';
 import { isAdminDiscussion, visibleDiscussions } from './areas.js';
+import { indexConversations } from './conversations.js';
 
 export function atomicWrite(destination: string, bytes: Uint8Array): void {
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
@@ -196,10 +201,40 @@ export class Store {
       lastSync: this.meta('lastSync'),
       storageWarning: false,
       notifications: this.notificationSettings(),
+      reading: this.readingSettings(),
+      desktop: this.desktopSettings(),
     });
   }
   notificationSettings(): NotificationSettings {
     return notificationSettingsSchema.parse(JSON.parse(this.meta('notifications') || '{}'));
+  }
+  readingSettings(): ReadingSettings {
+    return readingSettingsSchema.parse(JSON.parse(this.meta('reading') || '{}'));
+  }
+  setReading(value: ReadingSettings): void {
+    const settings = readingSettingsSchema.parse(value);
+    if (JSON.stringify(settings) === JSON.stringify(this.readingSettings())) return;
+    this.mutate(() => this.setMeta('reading', JSON.stringify(settings)));
+  }
+  desktopSettings(): DesktopSettings {
+    return desktopSettingsSchema.parse(JSON.parse(this.meta('desktop') || '{}'));
+  }
+  setDesktop(value: DesktopSettings): void {
+    const settings = desktopSettingsSchema.parse(value);
+    if (JSON.stringify(settings) === JSON.stringify(this.desktopSettings())) return;
+    this.mutate(() => this.setMeta('desktop', JSON.stringify(settings)));
+  }
+  markConversationRead(id: string): void {
+    const state = this.state();
+    const group = indexConversations(state.messages).get(id);
+    const message = group?.messages.find((m) => m.id === id);
+    if (!group || !message || (message.area && !state.areas.some((a) => a.tag === message.area)))
+      throw new Error('This conversation is no longer available.');
+    const unread = group.messages.filter((m) => m.folder === 'inbox' && !m.read);
+    if (!unread.length) return;
+    this.mutate(() => {
+      for (const m of unread) this.put({ ...m, read: true });
+    });
   }
   setNotifications(value: NotificationSettings): void {
     const settings = notificationSettingsSchema.parse(value);

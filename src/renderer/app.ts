@@ -13,6 +13,8 @@ import {
 } from './mailbox.js';
 import { visibleDiscussions } from '../core/areas.js';
 import { defaultNotifications } from '../core/notifications.js';
+import { bodyBlocks, defaultReading, firstUnread } from '../core/reading.js';
+import type { ReadingSettings, DesktopSettings } from '../core/model.js';
 declare global {
   interface Window {
     packetlark: Api;
@@ -50,6 +52,10 @@ let sidebarKey = '',
 let rowLimit = 200;
 let threadLimit = 100;
 let threadViewKey = '';
+let collapseOverride: boolean | undefined;
+const expandedBodies = new Map<string, boolean>();
+const originalBodies = new Set<string>();
+let flushDraft: (() => Promise<boolean>) | undefined;
 const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
 let currentRows = new Map<string, MailboxRow>();
 let indexedMessages: Message[] | undefined;
@@ -129,6 +135,7 @@ toolbar.append(
   syncButton,
   search,
   button('Account', () => accountDialog()),
+  button('Preferences', () => preferencesDialog()),
 );
 const workspace = e('div', 'workspace'),
   sidebar = e('nav', 'sidebar');
@@ -240,8 +247,16 @@ function renderRuntime() {
   );
   for (const control of reader.querySelectorAll<HTMLButtonElement>('[data-mailbox-change]'))
     control.disabled = state.syncing;
+  for (const control of reader.querySelectorAll<HTMLButtonElement>(
+    '[data-first-unread], [data-conversation-read]',
+  ))
+    control.disabled = !firstUnread(selectedGroup());
 }
 function render() {
+  const reading = state.reading || defaultReading;
+  reader.style.setProperty('--message-font-size', `${reading.fontSize}px`);
+  reader.classList.toggle('monospace', reading.font === 'monospace');
+  app.classList.toggle('compact', reading.density === 'compact');
   renderRuntime();
   renderSidebar();
   renderMailbox();
@@ -538,6 +553,9 @@ function renderMailbox() {
     if (threadViewKey !== nextThreadView) {
       threadViewKey = nextThreadView;
       threadLimit = 100;
+      collapseOverride = undefined;
+      expandedBodies.clear();
+      originalBodies.clear();
     }
     let thread = grouped ? completeThread.slice(0, threadLimit) : completeThread;
     // A notification or author selection must remain reachable outside the first page.
@@ -545,6 +563,9 @@ function renderMailbox() {
       thread = sortMessages([...thread, selected], sortOrder);
     const key = JSON.stringify([
       grouped,
+      state.reading?.collapseRead,
+      state.reading?.collapseQuotes,
+      state.reading?.collapseSignatures,
       completeThread.length,
       { ...selected, read: undefined, starred: undefined },
       thread.map((m) => [m.id, m.from, m.body, m.date, m.subject]),
@@ -576,6 +597,67 @@ function renderMailbox() {
     );
     reader.append(empty);
   }
+}
+function selectedGroup(): Message[] {
+  return conversations.get(selection)?.messages || [];
+}
+function jumpToUnread() {
+  const next = firstUnread(selectedGroup());
+  if (!next) return;
+  selection = next.id;
+  expandedBodies.set(next.id, true);
+  renderMailbox();
+  const article = [...reader.querySelectorAll<HTMLElement>('[data-message-id]')].find(
+    (node) => node.dataset.messageId === next.id,
+  );
+  article?.scrollIntoView({ block: 'start' });
+  article?.querySelector<HTMLButtonElement>('.thread-select')?.focus({ preventScroll: true });
+  void action(() => api.mark(next.id, { read: true }));
+}
+function messageText(message: Message): HTMLElement {
+  const container = e('div', 'message-text');
+  const settings = state.reading || defaultReading;
+  if (!settings.collapseQuotes && !settings.collapseSignatures) {
+    container.append(e('pre', 'body-text', message.body));
+    return container;
+  }
+  const blocks = bodyBlocks(message.body);
+  const fold = (kind: string) =>
+    kind === 'quote'
+      ? settings.collapseQuotes
+      : kind === 'signature' && settings.collapseSignatures;
+  if (!blocks.some((block) => fold(block.kind))) {
+    container.append(e('pre', 'body-text', message.body));
+    return container;
+  }
+  const raw = originalBodies.has(message.id);
+  const toggle = button(
+    raw ? 'Use reading preferences' : 'Show original text',
+    () => {
+      if (raw) originalBodies.delete(message.id);
+      else originalBodies.add(message.id);
+      const next = messageText(message);
+      container.replaceWith(next);
+      next.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+    },
+    'small original-text',
+  );
+  container.append(toggle);
+  if (raw) container.append(e('pre', 'body-text', message.body));
+  else
+    for (const block of blocks) {
+      const pre = e('pre', 'body-text', block.text);
+      if (!fold(block.kind)) container.append(pre);
+      else {
+        const details = e('details', 'folded-text');
+        details.append(
+          e('summary', '', block.kind === 'quote' ? 'Quoted text' : 'Signature and message footer'),
+          pre,
+        );
+        container.append(details);
+      }
+    }
+  return container;
 }
 function conversation(m: Message) {
   // Thread only on explicit FTN MSGID/REPLY links within the same area. Never merge by subject.
@@ -724,6 +806,36 @@ function renderMessage(
       ),
     );
   if (m.error) reader.append(e('div', 'notice warning', m.error));
+  if (grouped && total > 1) {
+    const tools = e('div', 'conversation-tools');
+    const jump = button('First unread', jumpToUnread);
+    jump.dataset.firstUnread = '';
+    jump.disabled = !firstUnread(selectedGroup());
+    const mark = button(
+      'Mark conversation read',
+      () =>
+        void action(async () => {
+          await api.markConversationRead(selection);
+          expandedBodies.clear();
+          readerKey = '';
+        }),
+    );
+    mark.dataset.conversationRead = '';
+    mark.disabled = !firstUnread(selectedGroup());
+    const collapse = (value: boolean) => {
+      collapseOverride = value;
+      expandedBodies.clear();
+      readerKey = '';
+      renderMailbox();
+    };
+    tools.append(
+      jump,
+      mark,
+      button('Collapse read replies', () => collapse(true)),
+      button('Expand replies', () => collapse(false)),
+    );
+    reader.append(tools);
+  }
   if (grouped && total > 1)
     reader.append(
       e(
@@ -759,8 +871,18 @@ function renderMessage(
       } else author.textContent = `${part.from} · ${date(part.date)}`;
       article.append(author);
     }
-    const text = e('pre', 'body-text', part.body);
-    article.append(text);
+    if (grouped && total > 1) {
+      const details = e('details', 'conversation-part');
+      details.open =
+        part.id === m.id ||
+        (expandedBodies.get(part.id) ??
+          !(part.read && (collapseOverride ?? state.reading?.collapseRead ?? false)));
+      details.addEventListener('toggle', () => {
+        if (details.isConnected) expandedBodies.set(part.id, details.open);
+      });
+      details.append(e('summary', '', part.subject || '(No subject)'), messageText(part));
+      article.append(details);
+    } else article.append(messageText(part));
     reader.append(article);
   }
   if (grouped && thread.length < total)
@@ -955,6 +1077,16 @@ function openCompose(initial: Partial<Compose> = {}) {
     close();
     await refresh();
   };
+  flushDraft = async () => {
+    if (!box.isConnected) return true;
+    if (removingDraft || submitting) return false;
+    await save();
+    if (saveError) {
+      notify(saveError instanceof Error ? saveError.message : 'Draft could not be saved.', true);
+      return false;
+    }
+    return !dirty;
+  };
   box.querySelector<HTMLButtonElement>('.dialog-header button')!.onclick = null;
   const oldClose = box.querySelector<HTMLButtonElement>('.dialog-header button')!;
   oldClose.replaceWith(button('Save & close', () => void closeSafely(), 'small'));
@@ -1045,6 +1177,161 @@ function openCompose(initial: Partial<Compose> = {}) {
   body.append(form);
   text.focus();
   if (initial.body) text.setSelectionRange(0, 0);
+}
+function preferencesDialog() {
+  const { body } = dialog('Preferences');
+  const reading = e('fieldset', 'notification-settings');
+  reading.append(e('legend', '', 'Reading'));
+  const defaults = state.reading || defaultReading;
+  const controls: (HTMLInputElement | HTMLSelectElement)[] = [];
+  function choice(label: string, values: [string, string][], value: string) {
+    const wrap = e('label', 'field');
+    wrap.append(e('span', '', label));
+    const select = e('select');
+    for (const [key, text] of values) select.append(new Option(text, key));
+    select.value = value;
+    wrap.append(select);
+    reading.append(wrap);
+    controls.push(select);
+    return select;
+  }
+  const size = choice(
+    'Message text size',
+    [12, 14, 16, 18, 20, 24].map((n) => [String(n), `${n} px`]),
+    String(defaults.fontSize),
+  );
+  const font = choice(
+    'Message font',
+    [
+      ['system', 'System font'],
+      ['monospace', 'Monospace'],
+    ],
+    defaults.font,
+  );
+  const density = choice(
+    'Spacing',
+    [
+      ['comfortable', 'Comfortable'],
+      ['compact', 'Compact'],
+    ],
+    defaults.density,
+  );
+  function check(parent: HTMLElement, label: string, value: boolean) {
+    const wrap = e('label', 'notification-option'),
+      box = e('input');
+    box.type = 'checkbox';
+    box.checked = value;
+    wrap.append(box, e('span', '', label));
+    parent.append(wrap);
+    return box;
+  }
+  const read = check(reading, 'Collapse read replies', defaults.collapseRead);
+  const quotes = check(reading, 'Collapse quoted text', defaults.collapseQuotes);
+  const signatures = check(
+    reading,
+    'Collapse signatures and message footers',
+    defaults.collapseSignatures,
+  );
+  controls.push(read, quotes, signatures);
+  function restore(value: ReadingSettings) {
+    size.value = String(value.fontSize);
+    font.value = value.font;
+    density.value = value.density;
+    read.checked = value.collapseRead;
+    quotes.checked = value.collapseQuotes;
+    signatures.checked = value.collapseSignatures;
+  }
+  for (const control of controls)
+    control.addEventListener('change', () => {
+      const previous = state.reading || defaultReading;
+      const value = {
+        fontSize: Number(size.value),
+        font: font.value,
+        density: density.value,
+        collapseRead: read.checked,
+        collapseQuotes: quotes.checked,
+        collapseSignatures: signatures.checked,
+      } as ReadingSettings;
+      controls.forEach((c) => {
+        c.disabled = true;
+      });
+      void (async () => {
+        try {
+          await api.setReading(value);
+          if (value.collapseRead !== previous.collapseRead) {
+            expandedBodies.clear();
+            collapseOverride = undefined;
+          }
+          await refresh();
+        } catch (error) {
+          restore(previous);
+          notify(
+            error instanceof Error ? error.message : 'Could not save reading preferences.',
+            true,
+          );
+        } finally {
+          controls.forEach((c) => {
+            c.disabled = false;
+          });
+        }
+      })();
+    });
+  reading.append(
+    e(
+      'p',
+      'muted',
+      'Changes are saved automatically. Folding text never changes the original message or replies.',
+    ),
+  );
+  body.append(reading);
+  const desktop = e('fieldset', 'notification-settings');
+  desktop.append(e('legend', '', 'Background operation'));
+  const current = state.desktop || { keepRunning: false, startAtLogin: false };
+  const keep = check(desktop, 'Keep running when the window is closed', current.keepRunning);
+  const startup = check(desktop, 'Start PacketLark when I sign in', current.startAtLogin);
+  const availability = () => {
+    keep.disabled = state.traySupported === false && !keep.checked;
+    startup.disabled = !keep.checked || state.startupSupported !== true;
+  };
+  for (const control of [keep, startup])
+    control.addEventListener('change', () => {
+      const previous = state.desktop || { keepRunning: false, startAtLogin: false };
+      if (!keep.checked) startup.checked = false;
+      const value: DesktopSettings = { keepRunning: keep.checked, startAtLogin: startup.checked };
+      keep.disabled = startup.disabled = true;
+      void (async () => {
+        try {
+          await api.setDesktop(value);
+          await refresh();
+        } catch (error) {
+          keep.checked = previous.keepRunning;
+          startup.checked = previous.startAtLogin;
+          notify(
+            error instanceof Error ? error.message : 'Could not save background settings.',
+            true,
+          );
+        } finally {
+          availability();
+        }
+      })();
+    });
+  availability();
+  desktop.append(
+    e(
+      'p',
+      'muted',
+      'Background mode keeps your mailbox and drafts open and checks for mail at your normal interval. Use the tray menu to open PacketLark, send & receive, or quit. Reopening PacketLark also restores its window.',
+    ),
+  );
+  if (!state.startupSupported)
+    desktop.append(
+      e('p', 'muted', 'Start at sign-in is available in packaged Windows and Linux builds.'),
+    );
+  if (state.traySupported === false)
+    desktop.append(
+      e('p', 'notice', 'Your desktop tray is unavailable. Closing the window will quit normally.'),
+    );
+  body.append(desktop);
 }
 function accountDialog() {
   const { body } = dialog('Your account');
@@ -1402,6 +1689,14 @@ document.addEventListener('keydown', (event) => {
   }
 });
 if (api) {
+  api.onPrepareQuit?.(async () => {
+    try {
+      return flushDraft ? await flushDraft() : true;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Draft could not be saved.', true);
+      return false;
+    }
+  });
   api.onNotification?.((id) => {
     pendingNotification = id;
     void refresh().catch((error) => notify(String(error), true));

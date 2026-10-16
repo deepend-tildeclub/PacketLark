@@ -26,6 +26,25 @@ const api: Api = {
   backup: () => call('backup'),
   setNotifications: (value) => call('notifications', value),
   testNotification: () => call('testNotification'),
+  setReading: (value) => call('reading', value),
+  setDesktop: (value) => call('desktop', value),
+  markConversationRead: (id) => call('markConversationRead', id),
+  onPrepareQuit(cb) {
+    const listener = (_event: Electron.IpcRendererEvent, token: unknown) => {
+      if (
+        typeof token !== 'string' ||
+        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token)
+      )
+        return;
+      void Promise.resolve()
+        .then(cb)
+        .catch(() => false)
+        .then((saved) => call('finishQuit', token, saved === true))
+        .catch(() => {});
+    };
+    ipcRenderer.on('desktop:prepareQuit', listener);
+    return () => ipcRenderer.removeListener('desktop:prepareQuit', listener);
+  },
   onNotification(cb) {
     const listener = (_event: Electron.IpcRendererEvent, id: unknown) => {
       if (typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)) cb(id);

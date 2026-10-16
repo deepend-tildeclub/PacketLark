@@ -24,6 +24,60 @@ try {
   assert.equal(state.account, null);
   assert.deepEqual(state.notifications, { enabled: true, discussions: true, previews: true });
   assert.equal(typeof state.notificationsSupported, 'boolean');
+  assert.equal(state.desktop.keepRunning, false);
+  const reading = await window.evaluate(async () => {
+    const initial = (await window.packetlark.state()).reading;
+    await window.packetlark.setReading({ ...initial, fontSize: 18, font: 'monospace' });
+    let rejected = false;
+    try {
+      await window.packetlark.setReading({ ...initial, fontSize: 999 });
+    } catch {
+      rejected = true;
+    }
+    let invalidDesktop = false;
+    try {
+      await window.packetlark.setDesktop({ keepRunning: false, startAtLogin: true });
+    } catch {
+      invalidDesktop = true;
+    }
+    let missingConversation = false;
+    try {
+      await window.packetlark.markConversationRead('missing');
+    } catch {
+      missingConversation = true;
+    }
+    return {
+      saved: (await window.packetlark.state()).reading,
+      rejected,
+      invalidDesktop,
+      missingConversation,
+      quitHandler: typeof window.packetlark.onPrepareQuit,
+    };
+  });
+  assert.equal(reading.saved.fontSize, 18);
+  assert.equal(reading.saved.font, 'monospace');
+  assert.equal(reading.rejected, true);
+  assert.equal(reading.invalidDesktop, true);
+  assert.equal(reading.missingConversation, true);
+  assert.equal(reading.quitHandler, 'function');
+  if (state.traySupported) {
+    await window.evaluate(() =>
+      window.packetlark.setDesktop({ keepRunning: true, startAtLogin: false }),
+    );
+    await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+    assert.equal(
+      await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()),
+      false,
+    );
+    await desktop.evaluate(({ app }) => app.emit('second-instance', {}, ['packetlark']));
+    assert.equal(
+      await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()),
+      true,
+    );
+    await window.evaluate(() =>
+      window.packetlark.setDesktop({ keepRunning: false, startAtLogin: false }),
+    );
+  }
   const preferences = await window.evaluate(async () => {
     await window.packetlark.setNotifications({
       enabled: false,
@@ -84,7 +138,7 @@ try {
   assert.equal(await window.evaluate(() => typeof window.require), 'undefined');
   await window.screenshot({ path: 'test-results/desktop-welcome.png' });
   console.log(
-    'Desktop smoke passed: preload IPC, native-notification preferences, revision notifications, mailbox refresh, and renderer isolation.',
+    'Desktop smoke passed: preferences and validation, tray close/reopen where available, isolated IPC, notification navigation, and mailbox refresh.',
   );
 } finally {
   await desktop?.close();

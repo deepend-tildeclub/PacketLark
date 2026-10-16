@@ -1,4 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  Notification,
+  safeStorage,
+  shell,
+  Tray,
+} from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,10 +21,15 @@ import {
   draftSchema,
   profileSchema,
   notificationSettingsSchema,
+  readingSettingsSchema,
+  desktopSettingsSchema,
+  type DesktopSettings,
   type State,
 } from '../core/model.js';
 import { newMailNotice, notificationTarget } from '../core/notifications.js';
 import { DesktopNotifications } from './notifications.js';
+import { DesktopTray, unreadCount, unreadDot } from './background.js';
+import { LoginStartup } from './startup.js';
 import { exchange } from '../core/binkp.js';
 import { unpackMail } from '../core/packet.js';
 
@@ -45,14 +62,15 @@ if (
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const applicationIcon = app.isPackaged
+  ? path.join(process.resourcesPath, 'notification-icon.png')
+  : path.join(app.getAppPath(), 'build/icon.png');
 const notifications = new DesktopNotifications({
   platform: process.platform,
   supported: () => Notification.isSupported(),
   create: (options) => new Notification(options),
   open: openNotification,
-  icon: app.isPackaged
-    ? path.join(process.resourcesPath, 'notification-icon.png')
-    : path.join(app.getAppPath(), 'build/icon.png'),
+  icon: applicationIcon,
 });
 let win: BrowserWindow | null = null,
   store: Store,
@@ -66,16 +84,116 @@ const isAccountFile = (arg: string) => /\.(packetlark|retropost)$/i.test(arg);
 let pendingImport = process.argv.find(isAccountFile);
 let pendingMessage: string | undefined;
 let lastNotification = { id: '', time: 0 };
+let desktop: DesktopTray | undefined;
+let startup: LoginStartup;
+let snapshot: State | undefined;
+let badgeRevision = -1;
+let badgeCount = 0;
+let quitToken: string | undefined;
+let quitTimer: ReturnType<typeof setTimeout> | undefined;
+let aborting = false;
+let startHidden = process.argv.includes('--background');
+function mailboxSnapshot(): State {
+  if (snapshot?.revision !== store.revision) snapshot = store.state();
+  return snapshot!;
+}
+function showWindow() {
+  if (quitting) return;
+  startHidden = false;
+  if (!win || win.isDestroyed()) createWindow();
+  if (win!.isMinimized()) win!.restore();
+  win!.show();
+  win!.focus();
+}
+function updateDesktop() {
+  try {
+    updateDesktopUnsafe();
+  } catch {
+    /* Shell/keyring failures must not affect mail exchange. */
+  }
+}
+function updateDesktopUnsafe() {
+  if (!store) return;
+  const state = mailboxSnapshot();
+  if (badgeRevision !== store.revision) {
+    badgeRevision = store.revision;
+    badgeCount = unreadCount(state);
+    win?.setTitle(badgeCount ? `PacketLark (${badgeCount} unread)` : 'PacketLark');
+    try {
+      if (process.platform === 'win32')
+        win?.setOverlayIcon(
+          badgeCount ? nativeImage.createFromBitmap(unreadDot(), { width: 16, height: 16 }) : null,
+          `${badgeCount} unread messages`,
+        );
+      else if (process.platform === 'linux') app.setBadgeCount(badgeCount);
+    } catch {
+      /* Badges depend on the desktop shell. */
+    }
+  }
+  desktop?.update(badgeCount, syncing, !!state.account);
+  if (
+    store.desktopSettings().keepRunning &&
+    !desktop?.available &&
+    win &&
+    !win.isVisible() &&
+    !quitting
+  )
+    showWindow();
+}
+function finishQuit() {
+  quitting = true;
+  app.quit();
+}
+function requestQuit() {
+  if (quitting || quitToken) return;
+  if (!win || win.isDestroyed() || win.webContents.isLoadingMainFrame()) {
+    finishQuit();
+    return;
+  }
+  quitToken = randomUUID();
+  win.webContents.send('desktop:prepareQuit', quitToken);
+  quitTimer = setTimeout(() => {
+    quitToken = undefined;
+    showWindow();
+    void dialog
+      .showMessageBox(win!, {
+        type: 'warning',
+        buttons: ['Keep open', 'Quit anyway'],
+        defaultId: 0,
+        cancelId: 0,
+        message: 'PacketLark could not confirm that your draft was saved.',
+        detail: 'Keep the window open to save your work. Quit anyway may discard unsaved text.',
+      })
+      .then(({ response }) => {
+        if (response === 1) finishQuit();
+      });
+  }, 5000);
+}
+function setDesktop(value: DesktopSettings) {
+  if (
+    value.keepRunning &&
+    !desktop?.start() &&
+    (!store.desktopSettings().keepRunning || value.startAtLogin)
+  )
+    throw new Error('Your desktop tray is unavailable. PacketLark will keep closing normally.');
+  const previous = startup.enabled();
+  if (previous !== value.startAtLogin) startup.set(value.startAtLogin);
+  try {
+    store.setDesktop(value);
+  } catch (error) {
+    if (previous !== value.startAtLogin) startup.set(previous);
+    throw error;
+  }
+  if (!value.keepRunning && win && !win.isVisible()) showWindow();
+  emit();
+}
 
 function openNotification(id: string) {
   if (quitting) return;
   // Windows can deliver both the live click event and the persistent activation callback.
   if (id === lastNotification.id && Date.now() - lastNotification.time < 250) return;
   lastNotification = { id, time: Date.now() };
-  if (!win || win.isDestroyed()) createWindow();
-  if (win!.isMinimized()) win!.restore();
-  win!.show();
-  win!.focus();
+  showWindow();
   if (!id) return;
   if (win!.webContents.isLoadingMainFrame()) pendingMessage = id;
   else win!.webContents.send('notification:open', id);
@@ -95,6 +213,7 @@ const secureStorage = () =>
   (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
 function emit() {
   win?.webContents.send('changed', { revision: store.revision, syncing, status });
+  updateDesktop();
 }
 function safeError(error: unknown): string {
   // Remote errors may reflect credentials. Redact every configured secret before displaying.
@@ -207,17 +326,19 @@ function register() {
         return { ok: false, error: safeError(error) };
       }
     });
-  let snapshot: State | undefined;
   handle('state', () => {
     // Connection progress doesn't change the mailbox. Avoid repeated SQL scans,
     // JSON decoding and OS credential decryption for the same durable revision.
-    if (snapshot?.revision !== store.revision) snapshot = store.state();
+    const snapshot = mailboxSnapshot();
     return {
       ...snapshot,
       syncing,
       status: status || snapshot.status,
       storageWarning: !secureStorage(),
       notificationsSupported: notifications.supported(),
+      desktop: { ...store.desktopSettings(), startAtLogin: startup.enabled() },
+      traySupported: desktop?.available || false,
+      startupSupported: startup.supported(),
     };
   });
   handle('import', async () => {
@@ -229,6 +350,24 @@ function register() {
     return result.canceled ? false : await importFile(result.filePaths[0]);
   });
   handle('sync', sync);
+  handle('reading', (value) => {
+    store.setReading(readingSettingsSchema.parse(value));
+    emit();
+  });
+  handle('desktop', (value) => setDesktop(desktopSettingsSchema.parse(value)));
+  handle('markConversationRead', (id) => {
+    store.markConversationRead(z.string().min(1).max(128).parse(id));
+    emit();
+  });
+  handle('finishQuit', (token, saved) => {
+    const validToken = z.string().uuid().parse(token);
+    const ok = z.boolean().parse(saved);
+    if (validToken !== quitToken) return;
+    quitToken = undefined;
+    if (quitTimer) clearTimeout(quitTimer);
+    if (ok) finishQuit();
+    else showWindow();
+  });
   handle('notifications', (value) => {
     store.setNotifications(notificationSettingsSchema.parse(value));
     emit();
@@ -322,7 +461,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'PacketLark',
-    icon: path.join(app.getAppPath(), 'build', 'icon.png'),
+    icon: applicationIcon,
     backgroundColor: '#f4f5f6',
     webPreferences: {
       preload: path.join(here, 'preload.cjs'),
@@ -333,6 +472,13 @@ function createWindow() {
     },
   });
   win.removeMenu();
+  win.on('close', (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    if (store?.desktopSettings().keepRunning && desktop?.available) win?.hide();
+    else requestQuit();
+  });
+  win.on('page-title-updated', (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
@@ -351,6 +497,17 @@ function createWindow() {
     win = null;
   });
   win.webContents.once('did-finish-load', () => {
+    badgeRevision = -1;
+    updateDesktop();
+    if (
+      startHidden &&
+      store.desktopSettings().keepRunning &&
+      desktop?.available &&
+      !pendingImport &&
+      pendingMessage === undefined
+    )
+      win?.hide();
+    startHidden = false;
     if (pendingMessage !== undefined) {
       win?.webContents.send('notification:open', pendingMessage);
       pendingMessage = undefined;
@@ -368,8 +525,7 @@ function createWindow() {
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', (_event, argv) => {
-    win?.restore();
-    win?.focus();
+    showWindow();
     const file = argv.find(isAccountFile);
     if (file && win)
       void importFile(file).catch((e) => {
@@ -383,15 +539,28 @@ else {
   });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', (event) => {
-    if (syncing && !quitting) {
+    if (!quitting && win && !win.isDestroyed()) {
+      event.preventDefault();
+      requestQuit();
+      return;
+    }
+    if (syncing && !aborting) {
       event.preventDefault();
       quitting = true;
+      aborting = true;
       controller.abort();
       setTimeout(() => app.quit(), 250);
     } else quitting = true;
   });
   app.on('will-quit', () => {
     if (timer) clearInterval(timer);
+    if (quitTimer) clearTimeout(quitTimer);
+    desktop?.close();
+    try {
+      if (process.platform === 'linux') app.setBadgeCount(0);
+    } catch {
+      /* The shell may already be gone. */
+    }
     notifications.close();
     store?.close();
   });
@@ -417,6 +586,71 @@ else {
           return safeStorage.decryptString(Buffer.from(s, 'base64'));
         },
       );
+      const executable =
+        process.platform === 'linux' &&
+        process.env.APPIMAGE &&
+        path.isAbsolute(process.env.APPIMAGE)
+          ? process.env.APPIMAGE
+          : process.execPath;
+      const configHome =
+        process.env.XDG_CONFIG_HOME && path.isAbsolute(process.env.XDG_CONFIG_HOME)
+          ? process.env.XDG_CONFIG_HOME
+          : path.join(app.getPath('home'), '.config');
+      startup = new LoginStartup({
+        platform: process.platform,
+        packaged: app.isPackaged,
+        executable,
+        configHome,
+        login: {
+          read: () => {
+            const settings = app.getLoginItemSettings({ path: executable, args: ['--background'] });
+            return settings.openAtLogin && settings.executableWillLaunchAtLogin;
+          },
+          write: (enabled) =>
+            app.setLoginItemSettings({
+              openAtLogin: enabled,
+              enabled,
+              path: executable,
+              args: ['--background'],
+            }),
+        },
+      });
+      // GTK tray initialization can abort a process without a display, rather than throw.
+      const trayEnvironment =
+        process.platform !== 'linux' ||
+        (!!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY) &&
+          app.commandLine.getSwitchValue('ozone-platform') !== 'headless');
+      if (trayEnvironment)
+        try {
+          const icon = nativeImage
+            .createFromPath(applicationIcon)
+            .resize({ width: 32, height: 32 });
+          const pixels = Buffer.from(icon.toBitmap());
+          const dot = unreadDot();
+          for (let y = 0; y < 16; y++)
+            for (let x = 0; x < 16; x++) {
+              const from = (y * 16 + x) * 4,
+                to = (y * 32 + x + 16) * 4;
+              if (dot[from + 3]) dot.copy(pixels, to, from, from + 4);
+            }
+          desktop = new DesktopTray({
+            create: () => new Tray(icon),
+            menu: (items) => Menu.buildFromTemplate(items),
+            normal: icon,
+            unread: nativeImage.createFromBitmap(pixels, { width: 32, height: 32 }),
+            open: showWindow,
+            quit: requestQuit,
+            sync: () => {
+              void sync().catch((error) => {
+                status = safeError(error);
+                emit();
+              });
+            },
+          });
+          desktop.start();
+        } catch {
+          /* A tray failure must leave the mailbox usable in a normal window. */
+        }
       register();
       createWindow();
       if (process.platform === 'win32') {
@@ -450,6 +684,6 @@ else {
         'PacketLark could not open your mailbox',
         `${safeError(error)}\nYour mailbox has not been reset. Back it up before troubleshooting.`,
       );
-      app.quit();
+      finishQuit();
     });
 }

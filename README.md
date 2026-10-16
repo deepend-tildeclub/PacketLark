@@ -30,6 +30,8 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
 - Send & receive manually or periodically while the application is running.
 - Native Windows/Linux new-mail notifications while the app is in the background, with click-to-open and saved notification preferences.
+- Optional close-to-tray background operation, unread indicators, and start at sign-in in packaged builds.
+- First unread navigation, one-action conversation read marking, collapsible replies/quotes/signatures, and saved reading preferences.
 - Plain-text display, UTF-8 and selected legacy outgoing encodings, incoming declared encodings supported by iconv-lite.
 - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
 - Explicit public replies and private replies, plus AreaFix join/leave requests.
@@ -49,6 +51,18 @@ Inbox, discussion, Sent, and Starred lists can group replies. Each row shows the
 Select an author inside a grouped conversation to choose a particular message. Reply, private reply, star, read/unread, details, and delete apply to that selected message. Opening a conversation marks only the selected message read. Deleting a message moves only that message to Trash; the rest of the conversation stays available. Drafts, Outbox, and Trash always show individual messages so editing, cancellation, restoration, and permanent deletion remain explicit. The view preference returns when you switch back to another folder.
 
 Messages without reply links remain separate. Repeated ambiguous message identifiers are not used to guess a parent. Both view and sort controls continue working for the current session if local preference storage is unavailable. No mailbox conversion or database migration is required.
+
+## Reading and background preferences
+
+Open **Preferences** in the toolbar to choose message text size (12–24 px), system or monospace font, and comfortable or compact spacing. Optional switches collapse read replies, quoted text, and signatures/message footers. These display choices are saved in your local mailbox. Folded text can always be expanded, and **Show original text** restores the complete plain-text display. Reply quoting and message details still use the original message.
+
+In a grouped conversation, **First unread** selects the oldest received unread message, even beyond the initial 100-body page. **Mark conversation read** marks received messages in that explicit thread together; it leaves other conversations, deleted mail, and outgoing flags alone. **Collapse read replies** and **Expand replies** change the current thread without changing your saved preference. The selected message stays expanded, and the existing per-message reply, star, read/unread, details, and delete actions remain available.
+
+Background operation is **off by default**. Enable **Keep running when the window is closed** to make Close hide the window while retaining drafts and the normal mail-check interval. The native tray menu offers **Open PacketLark**, **Send & receive**, and **Quit PacketLark**, with an unread count and indicator. Reopening PacketLark or clicking a mail notification restores the existing window. A missing or failed tray falls back to normal window operation; Linux needs a desktop panel with tray support.
+
+The optional **Start PacketLark when I sign in** uses Windows login settings or a per-user Linux XDG autostart entry. It is available only in packaged builds with background operation enabled. Turning background operation off also disables sign-in startup. Keep an AppImage at a stable path when using this option. PacketLark never overwrites an autostart entry it does not own.
+
+**Quit PacketLark** saves any pending draft before exiting. If saving fails, the window stays open with the text intact. Quitting stops background mail checks; this is a desktop application, not a system service. Native tray and taskbar badge appearance depends on the desktop shell.
 
 ## Build packages
 

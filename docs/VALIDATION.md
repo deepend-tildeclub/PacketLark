@@ -1,5 +1,34 @@
 # 0.1.0 validation record
 
+## Reading polish, preferences, and background operation
+
+Based on PacketLark `main` commit `b82b8d7`. Adds saved reading/background
+preferences, optional per-user sign-in startup, a native tray/menu and unread
+indicators, draft-safe Quit, reversible reply/quote/signature folding, first-unread
+navigation, and atomic conversation read marking. Defaults preserve existing
+window-close and text-display behavior. There are no dependency or database schema changes;
+preferences use existing mailbox metadata. The shared reply index is moved to core
+and re-exported from its original renderer module for compatibility.
+
+Validation includes 106 core tests, all 40 Electron UI tests, 24 provisioning
+tests, TypeScript, ESLint, Prettier, the production build, and Linux unpacked
+packaging. New tests cover exact text preservation, preference persistence and
+validation, atomic bulk-read rollback and scope, tray menu callbacks/failures and
+update caching, Windows login adapter calls, Linux autostart creation/removal and
+unowned-file/symlink protection, unread navigation beyond pagination, display
+preferences across reloads, full-text reply quoting, and draft flush/failure before
+Quit. Existing sorting, notification, mailbox, protocol, performance, and discussion
+checks remain enabled.
+
+The expanded production desktop IPC smoke validates settings and rejection paths,
+and exercises close-to-tray/reopen when a native tray is available. Its local test
+wrapper bypasses this restricted host's single-instance socket and uses Chromium's
+headless backend; Linux tray creation is deliberately unavailable without a display
+to avoid GTK's fatal display initialization. Native adapters are unit-tested with
+fakes here. Actual tray/taskbar appearance, login startup, and OS session integration
+still require acceptance on Windows and Linux desktops. The existing native CI
+jobs run the expanded smoke and UI checks before building packages.
+
 ## Conversation grouping
 
 Based on PacketLark `main` commit `faa4316`. Conversation view is a renderer-only

@@ -382,9 +382,51 @@ button.danger {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--message-font-size, 14px);
   line-height: 1.85;
   margin: 0;
+}
+.monospace .body-text {
+  font-family: ui-monospace, 'Cascadia Mono', 'DejaVu Sans Mono', monospace;
+}
+.compact .message-row {
+  padding: 10px 18px;
+}
+.compact .message-body {
+  padding: 12px 24px;
+}
+.compact .body-text {
+  line-height: 1.5;
+}
+.conversation-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 24px 0;
+}
+.conversation-tools button {
+  font-size: 12px;
+}
+.conversation-part > summary,
+.folded-text > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.conversation-part > summary:focus-visible,
+.folded-text > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.folded-text {
+  margin: 8px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.original-text {
+  margin-bottom: 10px;
 }
 .thread-author {
   font-size: 12px;

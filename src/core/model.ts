@@ -185,6 +185,37 @@ export const notificationSettingsSchema = z
   })
   .strict();
 export type NotificationSettings = z.infer<typeof notificationSettingsSchema>;
+export const readingSettingsSchema = z
+  .object({
+    fontSize: z
+      .union([
+        z.literal(12),
+        z.literal(14),
+        z.literal(16),
+        z.literal(18),
+        z.literal(20),
+        z.literal(24),
+      ])
+      .default(14),
+    font: z.enum(['system', 'monospace']).default('system'),
+    density: z.enum(['comfortable', 'compact']).default('comfortable'),
+    collapseRead: z.boolean().default(false),
+    collapseQuotes: z.boolean().default(false),
+    collapseSignatures: z.boolean().default(false),
+  })
+  .strict();
+export type ReadingSettings = z.infer<typeof readingSettingsSchema>;
+export const desktopSettingsSchema = z
+  .object({
+    keepRunning: z.boolean().default(false),
+    startAtLogin: z.boolean().default(false),
+  })
+  .strict()
+  .refine(
+    (v) => !v.startAtLogin || v.keepRunning,
+    'Enable background operation before starting at sign-in.',
+  );
+export type DesktopSettings = z.infer<typeof desktopSettingsSchema>;
 export type State = {
   revision?: number;
   account: PublicAccount | null;
@@ -198,6 +229,10 @@ export type State = {
   storageWarning: boolean;
   notifications?: NotificationSettings;
   notificationsSupported?: boolean;
+  reading?: ReadingSettings;
+  desktop?: DesktopSettings;
+  traySupported?: boolean;
+  startupSupported?: boolean;
 };
 export type RuntimeUpdate = { revision: number; syncing: boolean; status: string };
 export type Api = {
@@ -217,6 +252,10 @@ export type Api = {
   backup(): Promise<void>;
   setNotifications(value: NotificationSettings): Promise<void>;
   testNotification(): Promise<void>;
+  setReading(value: ReadingSettings): Promise<void>;
+  setDesktop(value: DesktopSettings): Promise<void>;
+  markConversationRead(messageId: string): Promise<void>;
+  onPrepareQuit(cb: () => Promise<boolean>): () => void;
   onNotification(cb: (messageId: string) => void): () => void;
   onChanged(cb: (update?: RuntimeUpdate) => void): () => void;
 };

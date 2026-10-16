@@ -6,6 +6,8 @@ import type {
   Compose,
   Message,
   NotificationSettings,
+  ReadingSettings,
+  DesktopSettings,
   RuntimeUpdate,
   State,
 } from '../../src/core/model.js';
@@ -58,6 +60,9 @@ declare global {
       replaceMessage(message: Message): void;
       openNotification(messageId: string): void;
       notificationTests(): number;
+      requestQuit(): Promise<boolean>;
+      failDraftSave(value: boolean): void;
+      setTraySupported(value: boolean): void;
     };
   }
 }
@@ -105,6 +110,14 @@ async function setup(
   await page.addInitScript(
     ({ initial, account }) => {
       const data = structuredClone(initial);
+      data.traySupported = true;
+      data.startupSupported = true;
+      try {
+        const saved = sessionStorage.getItem('test-reading');
+        if (saved) data.reading = JSON.parse(saved);
+      } catch {
+        /* Test unavailable storage too. */
+      }
       if (!account) {
         data.account = null;
         data.messages = [];
@@ -115,6 +128,8 @@ async function setup(
       const changed: ((update?: RuntimeUpdate) => void)[] = [];
       const notifications: ((id: string) => void)[] = [];
       let notificationTests = 0;
+      let prepareQuit: (() => Promise<boolean>) | undefined;
+      let draftSaveFails = false;
       const emit = (dataChanged = true) => {
         if (dataChanged) data.revision = (data.revision || 0) + 1;
         changed.forEach((cb) =>
@@ -122,6 +137,14 @@ async function setup(
         );
       };
       window.packetlarkTest = {
+        requestQuit: async () => (prepareQuit ? prepareQuit() : false),
+        failDraftSave: (value) => {
+          draftSaveFails = value;
+        },
+        setTraySupported: (value) => {
+          data.traySupported = value;
+          emit();
+        },
         openNotification: (id) => {
           notifications.forEach((callback) => callback(id));
         },
@@ -206,6 +229,7 @@ async function setup(
             emit();
           },
           saveDraft: async (c: Compose) => {
+            if (draftSaveFails) throw new Error('Disk unavailable');
             const m = make(c, 'drafts');
             data.messages = data.messages.filter((x) => x.id !== m.id);
             data.messages.push(m);
@@ -226,6 +250,56 @@ async function setup(
               data.messages.find((m) => m.id === id)!,
               patch,
             );
+            emit();
+          },
+          setReading: async (value: ReadingSettings) => {
+            data.reading = value;
+            try {
+              sessionStorage.setItem('test-reading', JSON.stringify(value));
+            } catch {
+              /* Test unavailable storage too. */
+            }
+            emit();
+          },
+          setDesktop: async (value: DesktopSettings) => {
+            data.desktop = value;
+            emit();
+          },
+          onPrepareQuit: (cb: () => Promise<boolean>) => {
+            prepareQuit = cb;
+            return () => {
+              prepareQuit = undefined;
+            };
+          },
+          markConversationRead: async (id: string) => {
+            const start = data.messages.find((m) => m.id === id)!;
+            const group = new Set([id]);
+            let changed = true;
+            while (changed) {
+              changed = false;
+              for (const m of data.messages) {
+                if (
+                  m.area !== start.area ||
+                  !['inbox', 'sent'].includes(m.folder) ||
+                  m.internal ||
+                  group.has(m.id)
+                )
+                  continue;
+                if (
+                  data.messages.some(
+                    (p) =>
+                      group.has(p.id) &&
+                      ((m.replyId && m.replyId === p.msgid) ||
+                        (p.replyId && p.replyId === m.msgid)),
+                  )
+                ) {
+                  group.add(m.id);
+                  changed = true;
+                }
+              }
+            }
+            for (const m of data.messages)
+              if (group.has(m.id) && m.folder === 'inbox') m.read = true;
             emit();
           },
           removeDraft: async (id: string) => {
@@ -1388,4 +1462,188 @@ test('keeps grouping usable when preferences are unavailable and leaves action f
   await expect(page.locator('.message-row')).toHaveCount(4);
   await page.reload();
   await expect(view).toHaveValue('conversations');
+});
+
+async function setReadingCheck(page: Page, name: string, checked: boolean) {
+  const control = page
+    .getByRole('dialog', { name: 'Preferences', exact: true })
+    .getByRole('checkbox', { name, exact: true });
+  await expect(control).toBeEnabled();
+  await control.evaluate((element: HTMLInputElement, value) => {
+    element.checked = value;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }, checked);
+  await expect(control).toBeEnabled();
+}
+
+test('saves reading preferences across reloads and preserves original quoted text for replies', async ({
+  page,
+}) => {
+  const original = {
+    ...message,
+    read: true,
+    body: 'My response\n> older reply <script>window.HACKED=true</script>\n-- \nMy signature\n',
+  };
+  await setup(page, true, state.discussions, [original]);
+  await click(page.locator('.message-row'));
+  await click(page.getByRole('button', { name: 'Preferences', exact: true }));
+  const prefs = page.getByRole('dialog', { name: 'Preferences', exact: true });
+  await prefs.getByRole('combobox', { name: 'Message text size', exact: true }).selectOption('18');
+  await prefs
+    .getByRole('combobox', { name: 'Message font', exact: true })
+    .selectOption('monospace');
+  await prefs.getByRole('combobox', { name: 'Spacing', exact: true }).selectOption('compact');
+  await setReadingCheck(page, 'Collapse quoted text', true);
+  await setReadingCheck(page, 'Collapse signatures and message footers', true);
+  await click(prefs.getByRole('button', { name: 'Close', exact: true }));
+  await expect(page.locator('.reader .body-text').first()).toHaveCSS('font-size', '18px');
+  await expect(page.locator('.reader')).toHaveClass(/monospace/);
+  await expect(page.locator('#app')).toHaveClass(/compact/);
+  await expect(page.locator('.folded-text')).toHaveCount(2);
+  expect(await page.locator('.folded-text').first().getAttribute('open')).toBeNull();
+  expect(
+    await page.evaluate(() => (window as unknown as { HACKED?: boolean }).HACKED),
+  ).toBeUndefined();
+  await click(page.getByRole('button', { name: 'Show original text', exact: true }));
+  await expect(page.locator('.body-text')).toHaveText(original.body);
+  await page.reload();
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.body-text').first()).toHaveCSS('font-size', '18px');
+  await expect(page.locator('.folded-text')).toHaveCount(2);
+  await click(page.getByRole('button', { name: 'Reply', exact: true }));
+  const quoted = await page
+    .getByRole('dialog', { name: 'New message', exact: true })
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .inputValue();
+  expect(quoted).toContain('> > older reply <script>window.HACKED=true</script>');
+  expect(quoted).toContain('> My signature');
+});
+
+test('collapses read replies, jumps to oldest unread and marks the received conversation read', async ({
+  page,
+}) => {
+  const messages = groupedFixture();
+  messages.push({
+    ...message,
+    id: 'unrelated-unread',
+    msgid: 'unrelated unread',
+    area: 'TEST',
+    subject: 'Unrelated unread',
+    date: '2026-10-14T10:00:00Z',
+  });
+  await setup(page, true, state.discussions, messages);
+  await click(page.getByRole('button', { name: /^Test discussion/ }));
+  await click(page.locator('.message-row').first());
+  await click(page.getByRole('button', { name: 'Collapse read replies', exact: true }));
+  expect(
+    await page.locator('[data-message-id="group-sent"] .conversation-part').getAttribute('open'),
+  ).toBeNull();
+  await click(page.getByRole('button', { name: 'First unread', exact: true }));
+  await expect(page.locator('.reader-heading h1')).toHaveText('Group root');
+  await expect(page.locator('[data-message-id="group-root"] .conversation-part')).toHaveAttribute(
+    'open',
+    '',
+  );
+  await expect(page.locator('.conversation-count')).toHaveText('4 messages · 1 unread');
+  await click(page.getByRole('button', { name: 'Mark conversation read', exact: true }));
+  await expect(page.getByRole('button', { name: 'First unread', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Mark conversation read', exact: true }),
+  ).toBeDisabled();
+  const saved = await page.evaluate(() => window.packetlark.state());
+  expect(saved.messages.find((m) => m.id === 'group-child')?.read).toBe(true);
+  expect(saved.messages.find((m) => m.id === 'unrelated-unread')?.read).toBe(false);
+  await click(page.getByRole('button', { name: 'Expand replies', exact: true }));
+  await expect(page.locator('[data-message-id="group-sent"] .conversation-part')).toHaveAttribute(
+    'open',
+    '',
+  );
+});
+
+test('finds an unread message outside the initial long-conversation page', async ({ page }) => {
+  const messages = Array.from({ length: 150 }, (_, i) => ({
+    ...message,
+    id: `unread-${i}`,
+    msgid: `unread ${i}`,
+    replyId: i ? `unread ${i - 1}` : '',
+    read: i !== 0,
+    body: `Unread page body ${i}`,
+    date: new Date(Date.UTC(2026, 9, 14) + i * 1000).toISOString(),
+  }));
+  await setup(page, true, state.discussions, messages);
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.body-text')).toHaveCount(100);
+  await click(page.getByRole('button', { name: 'First unread', exact: true }));
+  await expect(page.locator('[data-message-id="unread-0"] .selected-label')).toBeVisible();
+  await expect(page.locator('[data-message-id="unread-0"] .conversation-part')).toHaveAttribute(
+    'open',
+    '',
+  );
+  await expect(page.locator('.body-text')).toHaveCount(101);
+});
+
+test('saves opt-in background preferences and disables sign-in startup when background mode is off', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: 'Preferences', exact: true }));
+  const prefs = page.getByRole('dialog', { name: 'Preferences', exact: true });
+  await expect(
+    prefs.getByRole('checkbox', { name: 'Keep running when the window is closed', exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    prefs.getByRole('checkbox', { name: 'Start PacketLark when I sign in', exact: true }),
+  ).toBeDisabled();
+  await setReadingCheck(page, 'Keep running when the window is closed', true);
+  await setReadingCheck(page, 'Start PacketLark when I sign in', true);
+  expect((await page.evaluate(() => window.packetlark.state())).desktop).toEqual({
+    keepRunning: true,
+    startAtLogin: true,
+  });
+  await page.evaluate(() => window.packetlarkTest.setTraySupported(false));
+  await click(prefs.getByRole('button', { name: 'Close', exact: true }));
+  await click(page.getByRole('button', { name: 'Preferences', exact: true }));
+  const keep = prefs.getByRole('checkbox', {
+    name: 'Keep running when the window is closed',
+    exact: true,
+  });
+  await expect(keep).toBeEnabled();
+  await keep.evaluate((element: HTMLInputElement) => {
+    element.checked = false;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect
+    .poll(async () => (await page.evaluate(() => window.packetlark.state())).desktop)
+    .toEqual({ keepRunning: false, startAtLogin: false });
+  await expect(keep).toBeDisabled();
+  await expect(
+    prefs.getByRole('checkbox', { name: 'Start PacketLark when I sign in', exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    prefs.getByRole('checkbox', { name: 'Start PacketLark when I sign in', exact: true }),
+  ).toBeDisabled();
+});
+
+test('flushes a draft immediately before quit and keeps the application open after a failed save', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ New message', exact: true }));
+  const text = page
+    .getByRole('dialog', { name: 'New message', exact: true })
+    .getByRole('textbox', { name: 'Message', exact: true });
+  await text.fill('Must survive an immediate tray quit');
+  expect(await page.evaluate(() => window.packetlarkTest.requestQuit())).toBe(true);
+  let state = await page.evaluate(() => window.packetlark.state());
+  expect(state.messages.find((m) => m.folder === 'drafts')?.body).toBe(
+    'Must survive an immediate tray quit',
+  );
+  await page.evaluate(() => window.packetlarkTest.failDraftSave(true));
+  await text.fill('Unsaved change after disk failure');
+  expect(await page.evaluate(() => window.packetlarkTest.requestQuit())).toBe(false);
+  await expect(text).toHaveValue('Unsaved change after disk failure');
+  state = await page.evaluate(() => window.packetlark.state());
+  expect(state.messages.find((m) => m.folder === 'drafts')?.body).toBe(
+    'Must survive an immediate tray quit',
+  );
 });
