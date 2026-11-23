@@ -1,5 +1,5 @@
 import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
-import { profileSchema } from '../core/model.js';
+import { connectionSettingsSchema, profileSchema } from '../core/model.js';
 import './style.css';
 import {
   indexConversations,
@@ -12,6 +12,7 @@ import {
   type Conversation,
   type MailboxRow,
 } from './mailbox.js';
+import { recipientSuggestions } from '../core/contacts.js';
 import { visibleDiscussions } from '../core/areas.js';
 import { defaultNotifications } from '../core/notifications.js';
 import { bodyBlocks, defaultReading, firstUnread } from '../core/reading.js';
@@ -45,6 +46,7 @@ let composer: HTMLDialogElement | null = null,
   refreshing = false,
   refreshAgain = false;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let refreshWork: Promise<void> | undefined;
 let sidebarKey = '',
   headingKey = '',
   readerKey = '',
@@ -63,7 +65,14 @@ let indexedMessages: Message[] | undefined;
 let conversations = new Map<string, Conversation>();
 let moreMessages: HTMLButtonElement | undefined;
 let renderDiscussions: (() => void) | null = null;
-let pendingNotification: string | undefined;
+let pendingNotification: { id: string; accountId?: string } | undefined;
+let openingNotification = false;
+let switching = false;
+const accountViews = new Map<
+  string,
+  { folder: string; selection: string; query: string; unreadOnly: boolean }
+>();
+let pickerKey = '';
 const app = document.querySelector<HTMLDivElement>('#app')!;
 function e<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -122,7 +131,15 @@ brandIcon.draggable = false;
 brand.append(brandIcon, e('div', '', 'PacketLark'));
 toolbar.append(brand);
 const composeButton = button('＋ New message', () => openCompose(), 'primary');
-const syncButton = button('↻ Send & receive', () => void action(() => api.sync()));
+const syncButton = button('↻ Send & receive', () => void action(() => api.sync(state.accountId)));
+const accountPicker = e('select', 'account-picker');
+accountPicker.setAttribute('aria-label', 'Switch account');
+accountPicker.hidden = true;
+accountPicker.addEventListener('change', () => {
+  const id = accountPicker.value;
+  accountPicker.value = state.accountId || '';
+  void action(() => switchAccount(id));
+});
 const search = e('input', 'search');
 search.type = 'search';
 search.placeholder = 'Search messages';
@@ -134,6 +151,7 @@ search.addEventListener('input', () => {
 toolbar.append(
   composeButton,
   syncButton,
+  accountPicker,
   search,
   button('Account', () => accountDialog()),
   button('Preferences', () => preferencesDialog()),
@@ -199,47 +217,113 @@ const footerStatus = e('span'),
   footerTime = e('span');
 footer.append(footerStatus, footerTime);
 app.append(toolbar, workspace, footer);
-async function refresh() {
+function refresh(): Promise<void> {
   if (refreshTimer) {
     clearTimeout(refreshTimer);
     refreshTimer = undefined;
   }
-  if (refreshing) {
+  if (refreshWork) {
     refreshAgain = true;
-    return;
+    return refreshWork;
   }
   refreshing = true;
-  try {
+  refreshWork = (async () => {
     do {
       refreshAgain = false;
-      state = visibleDiscussions(await api.state());
+      const next = visibleDiscussions(await api.state());
+      if (state?.accountId !== next.accountId) {
+        if (state?.accountId)
+          accountViews.set(state.accountId, { folder, selection, query, unreadOnly });
+        const saved = next.accountId ? accountViews.get(next.accountId) : undefined;
+        ({ folder, selection, query, unreadOnly } = saved || {
+          folder: 'inbox',
+          selection: '',
+          query: '',
+          unreadOnly: false,
+        });
+        if (folder.startsWith('area:') && !next.areas.some((a) => a.tag === folder.slice(5)))
+          folder = 'inbox';
+        search.value = query;
+        sidebarKey = headingKey = readerKey = readerSelection = listViewKey = threadViewKey = '';
+        rowCache.clear();
+        expandedBodies.clear();
+        originalBodies.clear();
+        collapseOverride = undefined;
+        indexedMessages = undefined;
+        messageList.scrollTop = reader.scrollTop = 0;
+      }
+      state = next;
       render();
     } while (refreshAgain);
-  } finally {
+  })().finally(() => {
     refreshing = false;
+    refreshWork = undefined;
+    if (pendingNotification) void drainNotification();
+  });
+  return refreshWork;
+}
+
+async function switchAccount(id: string) {
+  if (id === state.accountId || switching) return;
+  if (composer) throw new Error('Save and close your draft before switching accounts.');
+  switching = true;
+  app.inert = true;
+  try {
+    await api.selectAccount(id);
+    await refresh();
+  } finally {
+    app.inert = false;
+    switching = false;
   }
-  if (pendingNotification !== undefined) {
-    const id = pendingNotification;
-    pendingNotification = undefined;
-    const message = state.messages.find((m) => m.id === id && m.folder === 'inbox' && !m.internal);
-    if (!message || (message.area && !state.areas.some((a) => a.tag === message.area))) {
-      notify('That message is no longer available in your Inbox.');
-      return;
-    }
-    folder = message.area ? `area:${message.area}` : 'inbox';
-    selection = message.id;
-    query = search.value = '';
-    unreadOnly = false;
-    render();
-    if (!message.read) void action(() => api.mark(message.id, { read: true }));
+}
+
+function openMail(id: string): boolean {
+  const message = state.messages.find((m) => m.id === id && m.folder === 'inbox' && !m.internal);
+  if (!message || (message.area && !state.areas.some((a) => a.tag === message.area))) {
+    notify('That message is no longer available in your Inbox.');
+    return false;
+  }
+  folder = message.area ? `area:${message.area}` : 'inbox';
+  selection = message.id;
+  query = search.value = '';
+  unreadOnly = false;
+  render();
+  if (!message.read) void action(() => api.mark(message.id, { read: true }, state.accountId));
+  return true;
+}
+
+async function drainNotification() {
+  if (!state || refreshing || switching || openingNotification || !pendingNotification) return;
+  const target = pendingNotification;
+  if (
+    target.accountId &&
+    target.accountId !== state.accountId &&
+    document.querySelector('dialog[open]')
+  )
+    return;
+  pendingNotification = undefined;
+  openingNotification = true;
+  try {
+    if (target.accountId && target.accountId !== state.accountId)
+      await switchAccount(target.accountId);
+    openMail(target.id);
+  } catch (error) {
+    notify(error instanceof Error ? error.message : 'Could not open that account.', true);
+  } finally {
+    openingNotification = false;
+    if (pendingNotification) queueMicrotask(() => void drainNotification());
   }
 }
 function renderRuntime() {
   composeButton.disabled = !state.account;
-  syncButton.disabled = !state.account || state.syncing;
+  syncButton.disabled = !state.account || (state.anySyncing ?? state.syncing);
   setText(syncButton, state.syncing ? '↻ Connecting…' : '↻ Send & receive');
+  syncButton.title = state.anySyncing && !state.syncing ? 'Another account is checking mail.' : '';
   footerStatus.className = state.syncing ? 'working' : '';
-  setText(footerStatus, `● ${state.status}`);
+  setText(
+    footerStatus,
+    `● ${state.anySyncing && !state.syncing ? 'Another account is checking mail.' : state.status}`,
+  );
   setText(
     footerTime,
     state.lastSync
@@ -254,6 +338,24 @@ function renderRuntime() {
     control.disabled = !firstUnread(selectedGroup());
 }
 function render() {
+  const options = state.accounts || [];
+  const key = JSON.stringify(
+    options.map((a) => [a.id, a.account.provider, a.account.address, a.unread, a.paused]),
+  );
+  if (pickerKey !== key) {
+    pickerKey = key;
+    accountPicker.replaceChildren(
+      ...options.map(
+        (a) =>
+          new Option(
+            `${a.account.provider} · ${a.account.address}${a.unread ? ` (${a.unread} unread)` : ''}${a.paused ? ' · paused' : ''}`,
+            a.id,
+          ),
+      ),
+    );
+    accountPicker.hidden = options.length < 2;
+  }
+  if (state.accountId) accountPicker.value = state.accountId;
   const reading = state.reading || defaultReading;
   reader.style.setProperty('--message-font-size', `${reading.fontSize}px`);
   reader.classList.toggle('monospace', reading.font === 'monospace');
@@ -268,6 +370,7 @@ function renderSidebar() {
   const key = JSON.stringify([
     folder,
     state.account?.provider,
+    state.accounts?.length,
     !!state.account,
     state.areas,
     ['inbox', 'sent', 'drafts', 'outbox', 'starred', 'trash'].map(
@@ -307,6 +410,8 @@ function renderSidebar() {
     if (count && id !== 'sent') b.append(e('span', 'count', String(count)));
     sidebar.append(b);
   }
+  if ((state.accounts?.length || 0) > 1)
+    sidebar.append(button('All unread', () => allUnreadDialog(), 'nav-item'));
   const discussionHeader = e('div', 'section-label section-spaced', 'DISCUSSIONS');
   sidebar.append(discussionHeader);
   for (const area of state.areas) {
@@ -487,7 +592,7 @@ function renderMailbox() {
         if (!live) return;
         selection = live.id;
         if (live.folder === 'drafts') openCompose({ ...live, replyId: live.replyId });
-        else if (!live.read) void action(() => api.mark(live.id, { read: true }));
+        else if (!live.read) void action(() => api.mark(live.id, { read: true }, state.accountId));
         renderMailbox();
       });
       cached = { key: '', node };
@@ -614,7 +719,7 @@ function jumpToUnread() {
   );
   article?.scrollIntoView({ block: 'start' });
   article?.querySelector<HTMLButtonElement>('.thread-select')?.focus({ preventScroll: true });
-  void action(() => api.mark(next.id, { read: true }));
+  void action(() => api.mark(next.id, { read: true }, state.accountId));
 }
 function messageText(message: Message): HTMLElement {
   const container = e('div', 'message-text');
@@ -721,7 +826,7 @@ function renderMessage(
         'Restore',
         () =>
           void action(async () => {
-            await api.restoreMessage(m.id);
+            await api.restoreMessage(m.id, state.accountId);
             selection = '';
             notify(
               m.trash?.folder === 'outbox'
@@ -739,7 +844,11 @@ function renderMessage(
         m.starred ? '★ Starred' : '☆ Star',
         () =>
           void action(() =>
-            api.mark(m.id, { starred: !state.messages.find((x) => x.id === m.id)!.starred }),
+            api.mark(
+              m.id,
+              { starred: !state.messages.find((x) => x.id === m.id)!.starred },
+              state.accountId,
+            ),
           ),
       ),
     );
@@ -749,7 +858,11 @@ function renderMessage(
         m.read ? 'Mark unread' : 'Mark read',
         () =>
           void action(() =>
-            api.mark(m.id, { read: !state.messages.find((x) => x.id === m.id)!.read }),
+            api.mark(
+              m.id,
+              { read: !state.messages.find((x) => x.id === m.id)!.read },
+              state.accountId,
+            ),
           ),
       ),
       button('Save contact', () => contactDialog(m.from, m.fromAddress)),
@@ -762,7 +875,7 @@ function renderMessage(
         m.folder === 'drafts' ? 'Delete draft' : 'Delete',
         () =>
           void action(async () => {
-            await api.trashMessage(m.id);
+            await api.trashMessage(m.id, state.accountId);
             selection = '';
             notify(
               m.folder === 'outbox'
@@ -817,7 +930,7 @@ function renderMessage(
       'Mark conversation read',
       () =>
         void action(async () => {
-          await api.markConversationRead(selection);
+          await api.markConversationRead(selection, state.accountId);
           expandedBodies.clear();
           readerKey = '';
         }),
@@ -857,7 +970,7 @@ function renderMessage(
           () => {
             const scroll = reader.scrollTop;
             selection = part.id;
-            if (!part.read) void action(() => api.mark(part.id, { read: true }));
+            if (!part.read) void action(() => api.mark(part.id, { read: true }, state.accountId));
             renderMailbox();
             reader.scrollTop = scroll;
             reader
@@ -905,7 +1018,7 @@ function renderMessage(
       box.append(
         button(`${r.from} — ${r.subject}`, () => {
           selection = r.id;
-          void action(() => api.mark(r.id, { read: true }));
+          void action(() => api.mark(r.id, { read: true }, state.accountId));
           renderMailbox();
         }),
       );
@@ -921,7 +1034,7 @@ function deletePermanently(message: Message) {
       'Delete permanently',
       () =>
         void action(async () => {
-          await api.deleteMessage(message.id);
+          await api.deleteMessage(message.id, state.accountId);
           selection = '';
           close();
           notify('Message permanently deleted.');
@@ -947,6 +1060,10 @@ function dialog(title: string): {
   header.append(button('Close', close, 'small'));
   box.append(header, body);
   document.body.append(box);
+  box.addEventListener('close', () => {
+    box.remove();
+    if (pendingNotification) void drainNotification();
+  });
   box.showModal();
   return { box, body, close };
 }
@@ -980,6 +1097,7 @@ function openCompose(initial: Partial<Compose> = {}) {
   }
   const p = state.account;
   if (!p) return;
+  const accountId = state.accountId;
   const currentArea = folder.startsWith('area:') ? folder.slice(5) : '';
   let draftId = initial.id,
     dirty = false,
@@ -1001,6 +1119,8 @@ function openCompose(initial: Partial<Compose> = {}) {
   area.value = initial.area ?? currentArea;
   areaLabel.append(area);
   form.append(areaLabel);
+  if ((state.accounts?.length || 0) > 1)
+    form.append(e('p', 'muted', `From: ${p.name} · ${p.provider} (${p.address})`));
   const privacy = e('div', 'notice');
   form.append(privacy);
   const row = e('div', 'form-row');
@@ -1011,18 +1131,40 @@ function openCompose(initial: Partial<Compose> = {}) {
     'FidoNet address',
     initial.toAddress || (area.value ? p.address.replace(/\.\d+(?=@|$)/, '') : ''),
   );
+  const suggestions = recipientSuggestions(state.contacts, state.messages, p.address);
   const names = e('datalist');
   names.id = 'contact-names';
-  for (const c of state.contacts) {
-    const o = e('option');
-    o.value = c.name;
-    names.append(o);
+  const choices = new Map<string, typeof suggestions>();
+  const addresses = e('datalist');
+  addresses.id = 'contact-addresses';
+  for (const c of suggestions) {
+    const key = c.name.toLowerCase();
+    const same = choices.get(key) || [];
+    same.push(c);
+    choices.set(key, same);
+    const option = e('option');
+    option.value = c.address;
+    option.label = c.name;
+    addresses.append(option);
+  }
+  for (const matching of choices.values()) {
+    const option = e('option');
+    option.value = matching[0].name;
+    option.label = matching.length === 1 ? matching[0].address : 'Choose the address separately';
+    names.append(option);
   }
   to.setAttribute('list', names.id);
-  form.append(names);
+  addr.setAttribute('list', addresses.id);
+  form.append(names, addresses);
   to.addEventListener('change', () => {
-    const c = state.contacts.find((c) => c.name === to.value);
-    if (c) addr.value = c.address;
+    if (area.value || addr.value.trim()) return;
+    const matching = choices.get(to.value.toLowerCase());
+    if (matching?.length === 1) addr.value = matching[0].address;
+  });
+  addr.addEventListener('change', () => {
+    if (area.value || to.value.trim()) return;
+    const contact = suggestions.find((c) => c.address === addr.value);
+    if (contact) to.value = contact.name;
   });
   form.append(row);
   const subject = field(form, 'Subject', initial.subject || '');
@@ -1056,7 +1198,10 @@ function openCompose(initial: Partial<Compose> = {}) {
     dirty = false;
     saving = saving.then(async () => {
       try {
-        const id = await api.saveDraft({ ...value, ...(draftId ? { id: draftId } : {}) });
+        const id = await api.saveDraft(
+          { ...value, ...(draftId ? { id: draftId } : {}) },
+          accountId,
+        );
         draftId = id;
         saveError = undefined;
         hint.textContent = 'Draft saved.';
@@ -1126,7 +1271,7 @@ function openCompose(initial: Partial<Compose> = {}) {
       try {
         await save();
         if (saveError) throw saveError;
-        await api.queue(values());
+        await api.queue(values(), accountId);
         composer = null;
         close();
         notify('Message queued. Use Send & receive to hand it to your provider.');
@@ -1156,7 +1301,7 @@ function openCompose(initial: Partial<Compose> = {}) {
           try {
             await save();
             if (saveError) throw saveError;
-            if (draftId) await api.trashMessage(draftId);
+            if (draftId) await api.trashMessage(draftId, accountId);
             composer = null;
             close();
             selection = '';
@@ -1352,6 +1497,8 @@ function preferencesDialog() {
 function accountDialog() {
   const { body, close } = dialog('Your account');
   const p = state.account;
+  const id = state.accountId;
+  if (state.accountProblem) body.append(e('p', 'notice warning', state.accountProblem));
   if (!p) {
     body.append(
       e('p', '', 'Import the account file supplied by your provider.'),
@@ -1383,19 +1530,86 @@ function accountDialog() {
       'muted',
       'Credentials are protected by your operating system keyring. Mailbox message content is stored locally without encryption.',
     ),
-    button('Back up mailbox', () => void action(() => api.backup())),
+    button('Back up mailbox', () => void action(() => api.backup(state.accountId))),
   );
+  if (id) {
+    const settings = e('div', 'account-actions');
+    const paused = state.accounts?.find((a) => a.id === id)?.paused || false;
+    settings.append(
+      button('Connection settings', () => {
+        close();
+        connectionDialog();
+      }),
+      button(paused ? 'Resume automatic checks' : 'Pause automatic checks', () => {
+        void action(async () => {
+          await api.pauseAccount(id, !paused);
+          close();
+        });
+      }),
+      button('Restore mailbox', () => {
+        void action(async () => {
+          if (await api.restoreMailbox(id)) {
+            accountViews.delete(id);
+            folder = 'inbox';
+            selection = query = search.value = '';
+            unreadOnly = false;
+            close();
+          }
+        });
+      }),
+    );
+    body.append(
+      e('h3', 'detail-label', 'Connection status'),
+      e('p', '', paused ? `Automatic checks paused. ${state.status}` : state.status),
+      e('p', 'muted', `Last successful check: ${state.lastSync ? date(state.lastSync) : 'Never'}`),
+    );
+    if (state.lastError) body.append(e('p', 'notice warning', `Last error: ${state.lastError}`));
+    body.append(settings);
+    const add = e('fieldset', 'notification-settings');
+    add.append(
+      e('legend', '', 'Add another account'),
+      e(
+        'p',
+        'muted',
+        'Use an account file from your sysop, or enter the details of an existing point.',
+      ),
+      button(
+        'Import account',
+        () => {
+          void action(async () => {
+            if (await api.importAccount()) {
+              close();
+              notify('Account added. Choose it in the account switcher.');
+            }
+          });
+        },
+        'primary',
+      ),
+      button('Advanced setup', () => {
+        close();
+        manualSetupDialog();
+      }),
+    );
+    body.append(add);
+    if ((state.accounts?.length || 0) > 1) {
+      const all = button('Send & receive all', () => {
+        close();
+        void action(() => api.syncAll());
+      });
+      all.disabled = !!state.anySyncing || !state.accounts?.some((a) => !a.paused);
+      body.append(all);
+    }
+  }
   if (state.storageWarning)
     body.append(
       e(
         'p',
         'notice warning',
-        'Unlock your operating system keyring before importing or using an account.',
+        'PacketLark needs a working desktop keyring to save and use account credentials.',
       ),
     );
 }
 function manualSetupDialog() {
-  if (state.account) return;
   const { box, body, close } = dialog('Advanced connection setup');
   body.append(
     e(
@@ -1532,7 +1746,11 @@ function manualSetupDialog() {
         session.value = packet.value = areaFix.value = '';
         close();
         await refresh();
-        notify('Account ready. Use Send & receive to check your messages.');
+        notify(
+          (state.accounts?.length || 0) > 1
+            ? 'Account added. Choose it in the account switcher.'
+            : 'Account ready. Use Send & receive to check your messages.',
+        );
       } catch (failure) {
         error.textContent =
           failure instanceof Error ? failure.message : 'Could not set up the account.';
@@ -1546,6 +1764,206 @@ function manualSetupDialog() {
   body.append(form);
   name.focus();
 }
+function connectionDialog() {
+  const p = state.account;
+  const id = state.accountId;
+  if (!p || !id) return;
+  const { box, body, close } = dialog('Connection settings');
+  body.append(e('p', '', `Point: ${p.address} · ${p.provider}`));
+  const form = e('form');
+  const fields = e('fieldset', 'notification-settings');
+  fields.append(e('legend', '', 'BinkP connection'));
+  const host = field(fields, 'BinkP server hostname or IP', p.host);
+  host.required = true;
+  host.maxLength = 253;
+  const port = field(fields, 'BinkP port', String(p.port), 'number');
+  port.min = '1';
+  port.max = '65535';
+  port.required = true;
+  const poll = field(fields, 'Check for mail every (minutes)', String(p.pollMinutes), 'number');
+  poll.min = '1';
+  poll.max = '1440';
+  poll.required = true;
+  const tlsWrap = e('label', 'notification-option');
+  const tls = e('input');
+  tls.type = 'checkbox';
+  tls.checked = p.tls;
+  tlsWrap.append(tls, e('span', '', 'Use certificate-verified implicit TLS'));
+  fields.append(
+    tlsWrap,
+    e(
+      'p',
+      'muted',
+      'Use the port your provider gave you. With TLS off, message traffic is not encrypted.',
+    ),
+  );
+  const charsetLabel = e('label', 'field');
+  const charset = e('select');
+  for (const value of ['UTF-8', 'CP437', 'CP850', 'CP866', 'WINDOWS-1252'])
+    charset.append(new Option(value, value));
+  charset.value = p.charset;
+  charsetLabel.append(e('span', '', 'Outgoing encoding'), charset);
+  fields.append(charsetLabel);
+  const session = field(fields, 'New session password', '', 'password');
+  const packet = field(fields, 'New packet password', '', 'password');
+  const areaFix = field(fields, 'New AreaFix password', '', 'password');
+  const clear = (label: string, input: HTMLInputElement) => {
+    const wrap = e('label', 'notification-option');
+    const control = e('input');
+    control.type = 'checkbox';
+    control.addEventListener('change', () => {
+      if (control.checked) input.value = '';
+      input.disabled = control.checked;
+    });
+    wrap.append(control, e('span', '', label));
+    input.closest('label')!.after(wrap);
+    return control;
+  };
+  const clearPacket = clear('Remove the saved packet password', packet);
+  const clearAreaFix = clear('Remove the saved AreaFix password', areaFix);
+  for (const input of [session, packet, areaFix]) {
+    input.autocomplete = 'new-password';
+    input.spellcheck = false;
+    input.maxLength = input === packet ? 8 : 128;
+  }
+  box.addEventListener('close', () => {
+    session.value = packet.value = areaFix.value = '';
+  });
+  fields.append(
+    e(
+      'p',
+      'muted',
+      'Leave password fields blank to keep the existing passwords. To change a packet or AreaFix password, send or cancel queued mail and requests first.',
+    ),
+  );
+  const queued = new Set(state.discussions.queued || []);
+  for (const message of state.messages) queued.delete(message.id);
+  if (queued.size) {
+    const cancelRequests = button('Cancel queued discussion requests', () => {
+      void action(async () => {
+        const n = await api.cancelDiscussionRequests(id);
+        if (n) {
+          cancelRequests.remove();
+          notify(`Cancelled ${n} queued discussion request(s).`);
+        }
+      });
+    });
+    fields.append(cancelRequests);
+  }
+  const save = e('button', 'primary', 'Save connection settings');
+  save.type = 'submit';
+  fields.append(save);
+  const error = e('p', 'notice warning');
+  error.setAttribute('role', 'alert');
+  error.hidden = true;
+  form.append(fields, error);
+  body.append(form);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (fields.disabled || !form.reportValidity()) return;
+    const result = connectionSettingsSchema.safeParse({
+      host: host.value.trim(),
+      port: Number(port.value),
+      pollMinutes: Number(poll.value),
+      tls: tls.checked,
+      charset: charset.value,
+      sessionPassword: session.value || undefined,
+      packetPassword: clearPacket.checked ? '' : packet.value || undefined,
+      areaFixPassword: clearAreaFix.checked ? '' : areaFix.value || undefined,
+    });
+    if (!result.success) {
+      error.textContent =
+        'Check the server, port, interval, encoding and password fields. Passwords cannot contain spaces or control characters.';
+      error.hidden = false;
+      return;
+    }
+    fields.disabled = true;
+    error.hidden = true;
+    void api
+      .updateConnection(result.data, id)
+      .then(() => {
+        close();
+        notify('Connection settings saved.');
+        return refresh();
+      })
+      .catch((failure: unknown) => {
+        if (box.open) {
+          error.textContent =
+            failure instanceof Error ? failure.message : 'Could not save connection settings.';
+          error.hidden = false;
+        } else notify('Could not refresh the mailbox.', true);
+      })
+      .finally(() => {
+        fields.disabled = false;
+      });
+  });
+}
+
+function allUnreadDialog() {
+  const { box, body, close } = dialog('All unread');
+  const results = e('div', 'unread-results');
+  const summary = e('p', 'muted', 'Loading unread messages…');
+  summary.setAttribute('role', 'status');
+  const label = e('label', 'field', 'Sort unread messages');
+  const select = e('select');
+  select.append(new Option('Newest first', 'newest'), new Option('Oldest first', 'oldest'));
+  select.value = sortOrder;
+  label.append(select);
+  let page = 0,
+    request = 0;
+  const more = button('Show more unread messages', () => void load(false));
+  more.hidden = true;
+  body.append(label, summary, results, more);
+  select.addEventListener('change', () => void load(true));
+  async function load(reset: boolean) {
+    const token = ++request;
+    if (reset) {
+      page = 0;
+      results.replaceChildren();
+    }
+    more.disabled = true;
+    try {
+      const { items, total } = await api.allUnread(
+        select.value === 'oldest' ? 'oldest' : 'newest',
+        page,
+      );
+      if (!box.open || token !== request) return;
+      summary.textContent = total ? `${total} unread across your accounts.` : 'No unread messages.';
+      for (const item of items) {
+        const row = button(
+          item.subject || '(No subject)',
+          () => {
+            close();
+            void action(async () => {
+              await switchAccount(item.accountId);
+              if (state.accountId === item.accountId) openMail(item.messageId);
+            });
+          },
+          'unread-item',
+        );
+        row.append(
+          e(
+            'small',
+            '',
+            `${item.provider} · ${item.from}${item.area ? ` · ${item.area}` : ''} · ${date(item.date)}`,
+          ),
+        );
+        results.append(row);
+      }
+      const previous = page;
+      page += items.length;
+      more.hidden = page >= total || page === previous;
+    } catch (error) {
+      if (box.open && token === request)
+        summary.textContent =
+          error instanceof Error ? error.message : 'Could not load unread messages.';
+    } finally {
+      if (token === request) more.disabled = false;
+    }
+  }
+  void load(true);
+}
+
 function notificationPreferences(body: HTMLElement) {
   const group = e('fieldset', 'notification-settings');
   group.append(e('legend', '', 'Desktop notifications'));
@@ -1634,13 +2052,14 @@ function contactDialog(name = '', address = '') {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     void action(async () => {
-      await api.contact(n.value, a.value);
+      await api.contact(n.value, a.value, state.accountId);
       close();
     });
   });
   body.append(form);
 }
 function areasDialog() {
+  const accountId = state.accountId;
   const { box, body } = dialog('Manage discussions');
   box.classList.add('discussion-browser');
   let busy = false,
@@ -1655,7 +2074,7 @@ function areasDialog() {
   const controls = e('div', 'discussion-controls');
   const listRequest = button(
     'Get available discussions',
-    () => run(() => api.requestAreaList()),
+    () => run(() => api.requestAreaList(accountId)),
     'primary',
   );
   const check = button('Check for replies', () => run(() => Promise.resolve()));
@@ -1700,14 +2119,14 @@ function areasDialog() {
     void action(async () => {
       await fn();
       await refresh();
-      await api.sync();
+      await api.sync(accountId);
     }).finally(() => {
       busy = false;
       if (box.open) draw();
     });
   }
   function change(value: string, join: boolean) {
-    run(() => api.areaCommand(value, join));
+    run(() => api.areaCommand(value, join, accountId));
   }
   function draw() {
     const directory = state.discussions;
@@ -1867,15 +2286,22 @@ if (api) {
       return false;
     }
   });
-  api.onNotification?.((id) => {
-    pendingNotification = id;
+  api.onNotification?.((id, accountId) => {
+    if (accountId && accountId !== state?.accountId && document.querySelector('dialog[open]'))
+      notify('New mail in another account. Close the open dialog to view it.');
+    pendingNotification = { id, accountId };
     void refresh().catch((error) => notify(String(error), true));
   });
   api.onChanged((update?: RuntimeUpdate) => {
     if (state && update && state.revision !== undefined && update.revision < state.revision) return;
     if (state && update && !refreshing && state.revision === update.revision) {
       const changedSync = state.syncing !== update.syncing;
-      state = { ...state, syncing: update.syncing, status: update.status || state.status };
+      state = {
+        ...state,
+        syncing: update.syncing,
+        anySyncing: update.anySyncing,
+        status: update.status || state.status,
+      };
       renderRuntime();
       if (changedSync) renderDiscussions?.();
       return;

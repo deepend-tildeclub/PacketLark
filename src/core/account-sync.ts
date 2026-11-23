@@ -1,0 +1,150 @@
+import { exchange } from './binkp.js';
+import { unpackMail } from './packet.js';
+import { type AccountContext, snapshot } from './accounts.js';
+import type { Profile } from './model.js';
+
+export function connectionError(error: unknown, profile?: Profile | null): string {
+  let message = error instanceof Error ? error.message : 'An unexpected error occurred.';
+  const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN')
+    message = 'Could not find the BinkP server. Check the hostname and DNS.';
+  else if (code === 'ECONNREFUSED')
+    message =
+      'The BinkP server refused the connection. Check the port and whether the mailer is running.';
+  else if (code === 'ETIMEDOUT')
+    message = 'The connection timed out. Check the network and server address.';
+  else if (code && /CERT|TLS|SSL|SELF_SIGNED/.test(code))
+    message = 'TLS verification failed. Check the server name, certificate and TLS port.';
+  const secrets = profile
+    ? [
+        profile.uplink.sessionPassword,
+        profile.uplink.packetPassword,
+        profile.uplink.areaFixPassword,
+      ]
+    : [];
+  for (const secret of secrets.filter(Boolean).sort((a, b) => b.length - a.length))
+    message = message.split(secret).join('[redacted]');
+  return message.slice(0, 400);
+}
+
+export class AccountSync {
+  current?: AccountContext;
+  private batch = false;
+  private controller?: AbortController;
+  private stopped = false;
+  constructor(
+    private hooks: {
+      emit: () => void;
+      received: (account: AccountContext, ids: ReadonlySet<string>) => void;
+      exchange?: typeof exchange;
+      now?: () => number;
+    },
+  ) {}
+  get busy() {
+    return !!this.current || this.batch;
+  }
+  stop() {
+    this.stopped = true;
+    this.controller?.abort();
+  }
+  tick(accounts: Iterable<AccountContext>) {
+    if (this.busy || this.stopped) return;
+    const now = this.hooks.now?.() ?? Date.now();
+    const next = [...accounts]
+      .filter((a) => !a.paused && a.nextCheck <= now && !!snapshot(a).account)
+      .sort((a, b) => a.nextCheck - b.nextCheck)[0];
+    if (next) void this.run(next).catch(() => {});
+  }
+  async all(accounts: AccountContext[]) {
+    if (this.busy || this.stopped) return;
+    this.batch = true;
+    this.hooks.emit();
+    let failures = 0;
+    try {
+      for (const account of accounts) {
+        if (this.stopped) break;
+        if (account.paused || !snapshot(account).account) continue;
+        try {
+          await this.run(account, true);
+        } catch {
+          failures++;
+        }
+      }
+    } finally {
+      this.batch = false;
+      this.hooks.emit();
+    }
+    if (failures)
+      throw new Error(
+        `${failures} account${failures === 1 ? '' : 's'} could not check mail. Open Account for the connection status.`,
+      );
+  }
+
+  async run(account: AccountContext, inBatch = false) {
+    if (this.current || (this.batch && !inBatch) || this.stopped) return;
+    const now = this.hooks.now || Date.now;
+    if (account.lastAttempt && now() - account.lastAttempt < 5000)
+      throw new Error('Please wait a few seconds before connecting again.');
+    // The store and profile belong to this exchange even if the user switches views.
+    const store = account.store;
+    let p: Profile | null;
+    try {
+      p = store.profile();
+    } catch (error) {
+      account.status = connectionError(error);
+      account.nextCheck = now() + (account.snapshot?.account?.pollMinutes || 10) * 60000;
+      this.hooks.emit();
+      throw error;
+    }
+    if (!p) throw new Error('Import an account first.');
+    this.current = account;
+    this.controller = new AbortController();
+    account.lastAttempt = now();
+    account.status = 'Connecting…';
+    this.hooks.emit();
+    let received = 0;
+    const ids = new Set<string>();
+    try {
+      await (this.hooks.exchange ?? exchange)(
+        p,
+        store.pending(),
+        {
+          status: (text) => {
+            account.status = text;
+            this.hooks.emit();
+          },
+          receive: async (file) => {
+            const saved = store.receiveNew(unpackMail(file.bytes, p));
+            received += saved.length;
+            for (const message of saved) ids.add(message.id);
+            this.hooks.emit();
+          },
+          sent: async (name) => {
+            store.sent(name);
+            this.hooks.emit();
+          },
+        },
+        this.controller.signal,
+      );
+      store.syncResult();
+      account.failures = 0;
+      account.status = `Up to date. ${received} new message${received === 1 ? '' : 's'}.`;
+    } catch (error) {
+      account.status = connectionError(error, p);
+      account.failures++;
+      store.syncResult(account.status);
+      throw new Error(account.status, { cause: error });
+    } finally {
+      account.nextCheck =
+        now() +
+        Math.max(
+          p.pollMinutes * 60000,
+          account.failures ? Math.min(3600000, 30000 * 2 ** Math.min(account.failures, 7)) : 0,
+        );
+      this.current = undefined;
+      this.controller = undefined;
+      this.hooks.emit();
+      this.hooks.received(account, ids);
+    }
+  }
+}

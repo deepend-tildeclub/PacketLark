@@ -165,11 +165,12 @@ try {
     }
     const afterInvalid = await window.packetlark.state();
     let installed = false;
+    let keyringError = '';
     try {
       await window.packetlark.setupAccount(value);
       installed = true;
     } catch (error) {
-      if (!initial.storageWarning) throw error;
+      keyringError = String(error);
     }
     const after = await window.packetlark.state();
     let replacementRejected = false;
@@ -184,19 +185,102 @@ try {
       invalid,
       unchanged: afterInvalid.revision === initial.revision && afterInvalid.account === null,
       installed,
-      storageWarning: initial.storageWarning,
+      keyringError,
       after,
       replacementRejected,
     };
   });
   assert.equal(manual.invalid, true);
   assert.equal(manual.unchanged, true);
-  assert.equal(manual.installed, !manual.storageWarning);
+  assert.equal(manual.installed, !manual.after.storageWarning);
   if (manual.installed) {
     assert.equal(manual.after.account.name, 'IPC smoke point');
     assert.equal(manual.replacementRejected, true);
-  } else assert.equal(manual.after.account, null);
+  } else {
+    assert.match(manual.keyringError, /keyring|credential store/i);
+    assert.equal(manual.after.account, null);
+  }
   assert.equal(JSON.stringify(manual.after).includes('SMOKESESSION'), false);
+  if (manual.installed) {
+    const isolated = await window.evaluate(async () => {
+      const api = window.packetlark;
+      const first = await api.state();
+      const draft = {
+        to: 'Other',
+        toAddress: '1:123/455',
+        subject: 'Owner A',
+        body: 'Body A',
+        area: '',
+        replyId: '',
+      };
+      await api.saveDraft(draft, first.accountId);
+      await api.setupAccount({
+        format: 'packetlark-account',
+        version: 1,
+        provider: 'Second provider',
+        name: 'Owner B',
+        address: '1:123/456.101@fidonet',
+        uplink: {
+          address: '1:123/456@fidonet',
+          host: 'other.example.invalid',
+          port: 24554,
+          tls: false,
+          sessionPassword: 'OTHERSECRET',
+          packetPassword: 'TESTPKT',
+          areaFixPassword: 'TESTAREA',
+        },
+        areas: [],
+        pollMinutes: 1440,
+        charset: 'UTF-8',
+      });
+      const added = await api.state();
+      const other = added.accounts.find((a) => a.id !== first.accountId);
+      await api.selectAccount(other.id);
+      const empty = await api.state();
+      let rejected = false;
+      try {
+        await api.queue(draft, first.accountId);
+      } catch {
+        rejected = true;
+      }
+      await api.saveDraft({ ...draft, subject: 'Owner B' }, other.id);
+      await api.updateConnection(
+        {
+          host: 'updated.example.invalid',
+          port: 24555,
+          tls: true,
+          pollMinutes: 1440,
+          charset: 'UTF-8',
+        },
+        other.id,
+      );
+      await api.pauseAccount(other.id, true);
+      const after = await api.state();
+      await api.selectAccount(first.accountId);
+      const original = await api.state();
+      return { added, empty, after, original, rejected, firstId: first.accountId };
+    });
+    assert.equal(isolated.added.accounts.length, 2);
+    assert.equal(isolated.added.accountId, isolated.firstId);
+    assert.equal(isolated.empty.messages.length, 0);
+    assert.equal(isolated.rejected, true);
+    assert.deepEqual(
+      isolated.original.messages.map((m) => m.subject),
+      ['Owner A'],
+    );
+    assert.deepEqual(
+      isolated.after.messages.map((m) => m.subject),
+      ['Owner B'],
+    );
+    assert.equal(isolated.after.account.host, 'updated.example.invalid');
+    assert.equal(
+      isolated.after.accounts.find((a) => a.id === isolated.after.accountId).paused,
+      true,
+    );
+    assert.equal(isolated.after.reading.fontSize, 18);
+    assert.equal(JSON.stringify(isolated).includes('OTHERSECRET'), false);
+  }
+
   await window.screenshot({ path: 'test-results/desktop-welcome.png' });
   console.log(
     'Desktop smoke passed: preferences and validation, tray close/reopen where available, isolated IPC, notification navigation, and mailbox refresh.',

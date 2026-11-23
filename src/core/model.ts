@@ -95,6 +95,20 @@ export const profileSchema = z
       ctx.addIssue({ code: 'custom', message: 'Discussion tags must be unique.' });
   });
 export type Profile = z.infer<typeof profileSchema>;
+export const connectionSettingsSchema = z
+  .object({
+    host: profileSchema.shape.uplink.shape.host,
+    port: profileSchema.shape.uplink.shape.port,
+    tls: profileSchema.shape.uplink.shape.tls,
+    pollMinutes: profileSchema.shape.pollMinutes,
+    charset: profileSchema.shape.charset,
+    sessionPassword: profileSchema.shape.uplink.shape.sessionPassword.optional(),
+    packetPassword: profileSchema.shape.uplink.shape.packetPassword.removeDefault().optional(),
+    areaFixPassword: profileSchema.shape.uplink.shape.areaFixPassword.removeDefault().optional(),
+  })
+  .strict();
+export type ConnectionSettings = z.infer<typeof connectionSettingsSchema>;
+
 export const composeSchema = z
   .object({
     id: z.string().uuid().optional(),
@@ -216,7 +230,27 @@ export const desktopSettingsSchema = z
     'Enable background operation before starting at sign-in.',
   );
 export type DesktopSettings = z.infer<typeof desktopSettingsSchema>;
+export type AccountSummary = {
+  id: string;
+  account: PublicAccount;
+  unread: number;
+  paused: boolean;
+};
+export type UnreadItem = {
+  accountId: string;
+  provider: string;
+  messageId: string;
+  from: string;
+  subject: string;
+  area: string;
+  date: string;
+};
 export type State = {
+  accountId?: string;
+  accounts?: AccountSummary[];
+  accountProblem?: string;
+  lastError?: string;
+  anySyncing?: boolean;
   revision?: number;
   account: PublicAccount | null;
   messages: Message[];
@@ -234,29 +268,44 @@ export type State = {
   traySupported?: boolean;
   startupSupported?: boolean;
 };
-export type RuntimeUpdate = { revision: number; syncing: boolean; status: string };
+export type RuntimeUpdate = {
+  revision: number;
+  syncing: boolean;
+  status: string;
+  anySyncing?: boolean;
+};
 export type Api = {
   state(): Promise<State>;
   importAccount(): Promise<boolean>;
   setupAccount(value: Profile): Promise<void>;
-  sync(): Promise<void>;
-  saveDraft(value: Compose): Promise<string>;
-  queue(value: Compose): Promise<string>;
-  mark(id: string, patch: { read?: boolean; starred?: boolean }): Promise<void>;
-  removeDraft(id: string): Promise<void>;
-  trashMessage(id: string): Promise<void>;
-  restoreMessage(id: string): Promise<void>;
-  deleteMessage(id: string): Promise<void>;
-  contact(name: string, address: string): Promise<void>;
-  areaCommand(tag: string, subscribe: boolean): Promise<void>;
-  requestAreaList(): Promise<void>;
-  backup(): Promise<void>;
+  sync(accountId?: string): Promise<void>;
+  syncAll(): Promise<void>;
+  selectAccount(accountId: string): Promise<void>;
+  pauseAccount(accountId: string, paused: boolean): Promise<void>;
+  updateConnection(value: ConnectionSettings, accountId?: string): Promise<void>;
+  restoreMailbox(accountId?: string): Promise<boolean>;
+  cancelDiscussionRequests(accountId?: string): Promise<number>;
+  allUnread(
+    order: 'newest' | 'oldest',
+    offset: number,
+  ): Promise<{ items: UnreadItem[]; total: number }>;
+  saveDraft(value: Compose, accountId?: string): Promise<string>;
+  queue(value: Compose, accountId?: string): Promise<string>;
+  mark(id: string, patch: { read?: boolean; starred?: boolean }, accountId?: string): Promise<void>;
+  removeDraft(id: string, accountId?: string): Promise<void>;
+  trashMessage(id: string, accountId?: string): Promise<void>;
+  restoreMessage(id: string, accountId?: string): Promise<void>;
+  deleteMessage(id: string, accountId?: string): Promise<void>;
+  contact(name: string, address: string, accountId?: string): Promise<void>;
+  areaCommand(tag: string, subscribe: boolean, accountId?: string): Promise<void>;
+  requestAreaList(accountId?: string): Promise<void>;
+  backup(accountId?: string): Promise<void>;
   setNotifications(value: NotificationSettings): Promise<void>;
   testNotification(): Promise<void>;
   setReading(value: ReadingSettings): Promise<void>;
   setDesktop(value: DesktopSettings): Promise<void>;
-  markConversationRead(messageId: string): Promise<void>;
+  markConversationRead(messageId: string, accountId?: string): Promise<void>;
   onPrepareQuit(cb: () => Promise<boolean>): () => void;
-  onNotification(cb: (messageId: string) => void): () => void;
+  onNotification(cb: (messageId: string, accountId?: string) => void): () => void;
   onChanged(cb: (update?: RuntimeUpdate) => void): () => void;
 };

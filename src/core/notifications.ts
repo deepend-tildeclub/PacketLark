@@ -5,7 +5,7 @@ export const defaultNotifications: NotificationSettings = {
   discussions: true,
   previews: true,
 };
-export type MailNotice = { title: string; body: string; messageId: string };
+export type MailNotice = { title: string; body: string; messageId: string; accountId?: string };
 
 function line(value: string, limit: number): string {
   const text = value
@@ -55,6 +55,11 @@ export function notificationTarget(arguments_: string): string | null {
   return /^packetlark-message:([A-Za-z0-9_-]{1,128})$/.exec(arguments_)?.[1] || null;
 }
 
+export function accountNotificationTarget(value: string): { id: string; accountId: string } | null {
+  const match = /^packetlark-account:([a-f0-9-]{36}):([A-Za-z0-9_-]{1,128})$/.exec(value);
+  return match ? { accountId: match[1], id: match[2] } : null;
+}
+
 export function notificationMarkup(value: string): string {
   return value.replace(
     /[&<>"']/g,
@@ -70,6 +75,10 @@ export function notificationMarkup(value: string): string {
 }
 
 export function windowsToast(notice: MailNotice): string {
-  const launch = notice.messageId ? `packetlark-message:${notice.messageId}` : 'packetlark-test';
+  const launch = notice.messageId
+    ? notice.accountId
+      ? `packetlark-account:${notice.accountId}:${notice.messageId}`
+      : `packetlark-message:${notice.messageId}`
+    : 'packetlark-test';
   return `<toast launch="${notificationMarkup(launch)}"><visual><binding template="ToastGeneric"><text>${notificationMarkup(notice.title)}</text><text>${notificationMarkup(notice.body)}</text></binding></visual></toast>`;
 }

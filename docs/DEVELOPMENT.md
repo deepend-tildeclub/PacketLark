@@ -79,7 +79,9 @@ The compiled preload is `dist/main/preload.cjs` because sandboxed Electron prelo
 
 ## Backup restoration
 
-Close PacketLark. Back up the existing OS application-data directory before changing it. Restore a saved `mailbox.sqlite` to that same directory on the **same machine/user with the original OS keyring**, then restart. The normal locations are `%APPDATA%/retropost/` on Windows and `~/.config/retropost/` on Linux, subject to OS overrides. Account → Back up mailbox saves a consistent database snapshot. Restoring a backup intentionally restores its historical queue state, so inspect Outbox before sending to avoid retransmitting old mail. Cross-machine account migration and merge/import are not implemented yet.
+Use **Account → Restore mailbox** for a snapshot of the selected account. It validates the point address, creates a recovery copy, and pauses automatic checks so you can review the restored Outbox. Restoration requires the same machine/user and original OS keyring. See [Accounts and preview builds](MULTI-ACCOUNT.md).
+
+To recover the entire app, quit PacketLark before backing up or replacing its OS application-data directory. Its normal locations are `%APPDATA%/retropost/` on Windows and `~/.config/retropost/` on Linux. Keep `mailbox.sqlite`, `accounts.json`, and `accounts/` together. An offline restore also restores the saved polling and queue state; review it before allowing PacketLark to connect.
 
 ## Maintenance
 
@@ -88,3 +90,12 @@ Follow Conventional Commits. Run format, checks, and relevant desktop tests befo
 ## Rename compatibility
 
 PacketLark retains the original internal `retropost` application name, app ID, keyring identity, and data directory to preserve existing accounts and encrypted credentials. Window branding, desktop/package names, wire identifiers, new signup files, and build artifacts use PacketLark. Existing `.retropost` files and `retropost-account` profiles remain accepted; new files use `.packetlark` and `packetlark-account`. Do not manually rename the mailbox directory or reset the OS keyring for this update.
+
+On Linux, PacketLark asks Secret Service to display its native prompt when the
+keyring is locked. Cancelling leaves saved accounts untouched; **Try again**
+can reopen the prompt. If Electron picked its insecure fallback on a desktop
+it does not recognize, PacketLark automatically selects Secret Service when
+one is available. Existing KWallet and explicitly selected secure backends
+are preserved. If there is no desktop keyring service, enable one for your
+login session before setting up an account. Launching with
+`--password-store=gnome-libsecret` can help diagnose backend selection.

@@ -1,8 +1,8 @@
 {
   "name": "packetlark",
-  "version": "0.1.0",
+  "version": "0.2.0-beta.1",
   "description": "Friendly FidoNet messaging from RetroDigital BBS",
-  "homepage": "https://github.com/deepend-tildeclub",
+  "homepage": "https://github.com/deepend-tildeclub/PacketLark",
   "author": "RetroDigital BBS contributors",
   "license": "MIT",
   "private": true,
@@ -28,6 +28,7 @@
     "dist:dir": "npm run build && electron-builder --dir --publish never"
   },
   "dependencies": {
+    "@jellybrick/dbus-next": "0.11.4",
     "fflate": "^0.8.2",
     "iconv-lite": "^0.7.0",
     "sql.js": "^1.16.0",

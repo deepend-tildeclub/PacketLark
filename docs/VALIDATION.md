@@ -1,4 +1,22 @@
-# 0.1.0 validation record
+# Validation record
+
+## 0.2.0 beta: multiple point accounts
+
+Based on PacketLark `main` commit `4882b2f`. The original mailbox stays in
+place and uses the same account-file and SQLite schema versions. New tests
+cover durable account selection, separate mailboxes and polling, receiving
+while the user switches accounts, notifications and unread results with
+overlapping message IDs, password changes with queued packets, and restoring
+a matching backup without repacking its Outbox.
+
+Local checks include TypeScript, lint, formatting, 118 core tests, 24
+Synchronet provisioning tests, the Electron UI suite, the production IPC
+smoke test, and Linux x64 AppImage and Debian packaging. The smoke test
+exercises keyring refusal and successful installation with an isolated test
+credential adapter. The release preflight was checked with valid and
+mismatched tags and with a missing artifact. No release was published.
+Native Windows builds and live exchanges with two test points remain part
+of the [preview checklist](MULTI-ACCOUNT.md#publishing-a-preview).
 
 ## Preferences notifications and manual point setup
 

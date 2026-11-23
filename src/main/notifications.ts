@@ -14,7 +14,7 @@ export class DesktopNotifications {
     private native: {
       supported(): boolean;
       create(options: NotificationConstructorOptions): NativeNotice;
-      open(messageId: string): void;
+      open(messageId: string, accountId?: string): void;
       platform: NodeJS.Platform;
       icon?: string;
     },
@@ -47,7 +47,8 @@ export class DesktopNotifications {
       };
       current.on('click', () => {
         try {
-          this.native.open(notice.messageId);
+          if (notice.accountId) this.native.open(notice.messageId, notice.accountId);
+          else this.native.open(notice.messageId);
         } catch {
           /* The window may be closing. */
         }

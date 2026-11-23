@@ -7,6 +7,9 @@ import {
   composeSchema,
   draftSchema,
   profileSchema,
+  connectionSettingsSchema,
+  sameAddress,
+  type ConnectionSettings,
   notificationSettingsSchema,
   readingSettingsSchema,
   desktopSettingsSchema,
@@ -67,6 +70,7 @@ export class Store {
     wasmPath: string,
     seal: (s: string) => string,
     unseal: (s: string) => string,
+    beforeCredentials?: () => Promise<void>,
   ): Promise<Store> {
     const sql = await initSqlJs({ locateFile: () => wasmPath });
     const db = new sql.Database(fs.existsSync(file) ? fs.readFileSync(file) : undefined);
@@ -80,9 +84,15 @@ export class Store {
       throw new Error('Mailbox was created by a newer version of PacketLark.');
     db.exec('PRAGMA user_version=1');
     const store = new Store(db, sql, file, seal, unseal);
-    if (!fs.existsSync(file)) atomicWrite(file, db.export());
-    store.cleanManagementTraffic();
-    return store;
+    try {
+      if (store.meta('profile')) await beforeCredentials?.();
+      if (!fs.existsSync(file)) atomicWrite(file, db.export());
+      store.cleanManagementTraffic();
+      return store;
+    } catch (error) {
+      store.close();
+      throw error;
+    }
   }
   private rows(sql: string, params: (string | number)[] = []): Record<string, unknown>[] {
     const stmt = this.db.prepare(sql);
@@ -129,6 +139,26 @@ export class Store {
       this.setMeta('areas', JSON.stringify(profile.areas));
     });
   }
+  updateConnection(value: ConnectionSettings): void {
+    const p = this.profile();
+    if (!p) throw new Error('Set up an account first.');
+    const { pollMinutes, charset, ...settings } = connectionSettingsSchema.parse(value);
+    const uplink = {
+      ...p.uplink,
+      ...Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined)),
+    };
+    const next = profileSchema.parse({ ...p, uplink, pollMinutes, charset });
+    if (
+      (next.uplink.packetPassword !== p.uplink.packetPassword ||
+        next.uplink.areaFixPassword !== p.uplink.areaFixPassword) &&
+      this.rows('SELECT 1 FROM outgoing LIMIT 1').length
+    )
+      throw new Error(
+        'Send or cancel queued messages and discussion requests before changing the packet or AreaFix password. Queued packets keep the credentials they were built with.',
+      );
+    const sealed = this.seal(JSON.stringify(next));
+    this.mutate(() => this.setMeta('profile', sealed));
+  }
   messages(): Message[] {
     return this.rows('SELECT data FROM messages').map(
       (r) => JSON.parse(r.data as string) as Message,
@@ -151,7 +181,7 @@ export class Store {
       message.msgid ? JSON.stringify([message.area, message.msgid]) : '',
     ]);
   }
-  private cleanManagementTraffic(): void {
+  private cleanManagementTraffic(persist = true): void {
     const p = this.profile();
     if (!p) return;
     const messages = this.messages();
@@ -159,7 +189,7 @@ export class Store {
     const requests = messages.filter((m) => !m.internal && isAreaRequest(m, p));
     if (!replies.length && !requests.length) return;
     const alreadyProcessed = !!this.meta('discussions');
-    this.mutate(() => {
+    const cleanup = () => {
       for (const m of requests)
         this.put(
           m.folder === 'sent'
@@ -171,7 +201,9 @@ export class Store {
         this.remember(m);
         this.db.run('DELETE FROM messages WHERE id=?', [m.id]);
       }
-    });
+    };
+    if (persist) this.mutate(cleanup);
+    else cleanup();
   }
   state(): State {
     const p = this.profile();
@@ -199,6 +231,7 @@ export class Store {
       syncing: false,
       status: p ? 'Ready to send & receive.' : 'Import your account file to get started.',
       lastSync: this.meta('lastSync'),
+      lastError: this.meta('lastError') || '',
       storageWarning: false,
       notifications: this.notificationSettings(),
       reading: this.readingSettings(),
@@ -426,6 +459,36 @@ export class Store {
     }
     this.setMeta('discussions', JSON.stringify(directory));
   }
+  cancelDiscussionRequests(): number {
+    const ids = new Set(
+      this.rows('SELECT message_id FROM outgoing').flatMap(({ message_id }) => {
+        const m = this.findMessage(String(message_id));
+        return m?.internal && m.folder === 'outbox' ? [m.id] : [];
+      }),
+    );
+    if (!ids.size) return 0;
+    const directory = this.discussions();
+    const notice =
+      'Queued request cancelled locally. Ask for a fresh list to check what happened on the BBS.';
+    this.mutate(() => {
+      for (const id of ids) {
+        this.db.run('DELETE FROM outgoing WHERE message_id=?', [id]);
+        this.db.run('DELETE FROM messages WHERE id=?', [id]);
+      }
+      if (directory.requestId && ids.has(directory.requestId)) {
+        directory.requestId = null;
+        directory.requestedAt = null;
+        directory.error = notice;
+      }
+      for (const area of directory.entries)
+        if (area.pending && ids.has(area.pending.messageId)) {
+          area.pending = null;
+          area.error = notice;
+        }
+      this.setMeta('discussions', JSON.stringify(directory));
+    });
+    return ids.size;
+  }
   pending(): MailFile[] {
     return this.rows('SELECT name,time,bytes FROM outgoing ORDER BY time,name').map((r) => ({
       name: r.name as string,
@@ -556,9 +619,126 @@ export class Store {
   syncResult(error = ''): void {
     this.mutate(() => {
       if (!error) this.setMeta('lastSync', new Date().toISOString());
+      this.setMeta('lastError', error);
       for (const m of this.messages().filter((m) => m.folder === 'outbox'))
         this.put({ ...m, error });
     });
+  }
+  /** Validate into a disposable database. Never run a backup against the live mailbox. */
+  prepareRestore(bytes: Buffer): { bytes: Buffer; queued: number; point: string } {
+    const current = this.profile();
+    if (!current) throw new Error('Install the account that owns this backup first.');
+    if (!bytes.subarray(0, 16).equals(Buffer.from('SQLite format 3\0')))
+      throw new Error('Choose a PacketLark SQLite mailbox backup.');
+    const db = new this.sql.Database(bytes);
+    const candidate = new Store(db, this.sql, this.file, this.seal, this.unseal);
+    try {
+      const version = db.exec('PRAGMA user_version')[0]?.values[0]?.[0];
+      if (version !== 0 && version !== 1) throw new Error('Unsupported mailbox backup version.');
+      const expected: Record<string, string> = {
+        meta: 'key,value',
+        messages: 'id,data',
+        outgoing: 'name,message_id,time,bytes',
+        contacts: 'address,name',
+        message_receipts: 'id,message_key',
+      };
+      const schema = candidate.rows(
+        "SELECT name,type,sql FROM sqlite_schema WHERE NOT (type='index' AND name GLOB 'sqlite_autoindex_*' AND sql IS NULL)",
+      );
+      for (const row of schema) {
+        if (
+          row.type !== 'table' ||
+          typeof row.name !== 'string' ||
+          !Object.hasOwn(expected, row.name) ||
+          typeof row.sql !== 'string' ||
+          !/^CREATE TABLE\s/i.test(row.sql) ||
+          candidate
+            .rows(`PRAGMA table_info(${row.name})`)
+            .map((c) => c.name)
+            .join(',') !== expected[row.name]
+        )
+          throw new Error('This file does not have the expected PacketLark mailbox schema.');
+      }
+      const check = db.exec('PRAGMA quick_check(1)')[0]?.values[0]?.[0];
+      if (check !== 'ok') throw new Error('The mailbox backup is damaged.');
+      const profile = candidate.profile();
+      if (!profile || !sameAddress(current.address, profile.address))
+        throw new Error('This backup belongs to a different point account.');
+      for (const key of ['desktop', 'reading', 'notifications']) {
+        const value = this.meta(key);
+        if (value === null) db.run('DELETE FROM meta WHERE key=?', [key]);
+        else candidate.setMeta(key, value);
+      }
+      // Older backups did not have duplicate-detection receipts.
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS message_receipts (id TEXT PRIMARY KEY, message_key TEXT NOT NULL); PRAGMA user_version=1',
+      );
+      const messages = candidate.rows('SELECT id,data FROM messages');
+      const byId = new Map<string, Message>();
+      for (const { id, data } of messages) {
+        const m = JSON.parse(String(data)) as Message;
+        if (
+          !m ||
+          typeof id !== 'string' ||
+          m.id !== id ||
+          !['inbox', 'outbox', 'sent', 'drafts', 'trash'].includes(m.folder) ||
+          typeof m.read !== 'boolean' ||
+          typeof m.starred !== 'boolean' ||
+          !(
+            [
+              'id',
+              'msgid',
+              'replyId',
+              'from',
+              'fromAddress',
+              'to',
+              'toAddress',
+              'subject',
+              'body',
+              'raw',
+              'area',
+              'date',
+              'error',
+              'packetName',
+            ] as const
+          ).every((key) => typeof m[key] === 'string')
+        )
+          throw new Error('The backup contains an invalid message record.');
+        byId.set(id, m);
+      }
+      const queued = candidate.rows('SELECT name,message_id,time,bytes FROM outgoing');
+      for (const row of queued) {
+        const message = byId.get(String(row.message_id));
+        if (
+          !message ||
+          message.folder !== 'outbox' ||
+          message.packetName !== row.name ||
+          typeof row.name !== 'string' ||
+          !/^[a-zA-Z0-9_.-]{1,100}$/.test(row.name) ||
+          !Number.isSafeInteger(row.time) ||
+          typeof row.bytes !== 'string' ||
+          !row.bytes
+        )
+          throw new Error('The backup contains an invalid Outbox.');
+      }
+      candidate.cleanManagementTraffic(false);
+      candidate.state();
+      return { bytes: candidate.backup(), queued: queued.length, point: profile.address };
+    } finally {
+      db.close();
+    }
+  }
+  replaceMailbox(bytes: Buffer): void {
+    const candidate = new this.sql.Database(bytes);
+    try {
+      atomicWrite(this.file, bytes);
+    } catch (error) {
+      candidate.close();
+      throw error;
+    }
+    this.db.close();
+    this.db = candidate;
+    this.currentRevision++;
   }
   backup(): Buffer {
     return Buffer.from(this.db.export());

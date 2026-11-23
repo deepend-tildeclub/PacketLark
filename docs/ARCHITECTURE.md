@@ -53,10 +53,27 @@ Moving a message to Trash records its original folder and deletion time in the e
 
 Credentials are stored in an OS-encrypted JSON blob. Linux `basic_text` fallback is refused. Message bodies, contact information, control headers, and SQLite backups are not encrypted. No telemetry, remote fonts, analytics, AI services, or update server is configured.
 
+## Account boundaries
+
+The original mailbox stays at `mailbox.sqlite`. A private `accounts.json`
+registry records IDs, the selected account, and paused checks. Additional
+mailboxes live under `accounts/<id>/mailbox.sqlite`. They use the same SQLite
+schema and keyring as the first mailbox. The signup format remains version 1:
+one file sets up one point and its matching boss.
+
+Only one BinkP exchange runs at a time. It captures its store, profile, Outbox,
+and cancellation signal at start. Switching the visible account changes none
+of those. Mailbox commands include the account ID and are rejected if it no
+longer matches the visible account. The main process uses a shared revision
+for renderer updates and caches each mailbox by that store's own revision.
+Reading, notification and tray preferences remain global and stay in the
+original mailbox. Notification activation for other mailboxes carries their
+account ID; old activation arguments still refer to the first mailbox.
+
 ## Current limits
 
-- A single point account per mailbox; no in-app replacement/removal or multi-device state synchronization.
-- Desktop application must be running for scheduled polling; no notification tray/background service yet.
+- One point per mailbox and up to 32 accounts per installation; no account removal or multi-device synchronization.
+- Desktop application must be running for polling. Close-to-tray keeps it running; there is no system mail service.
 - Search, list generation, and SQLite snapshot costs grow with mailbox size; rendered message rows are batched, but automatic retention is not implemented.
 - Basic threading uses explicit parent references. Missing/malformed legacy headers are not guessed by subject.
 - Discussion requests are asynchronous netmail commands; the interface does not parse every provider-specific AreaFix response format or maintain authoritative membership state.
@@ -65,4 +82,6 @@ Credentials are stored in an OS-encrypted JSON blob. Linux `basic_text` fallback
 
 ## Next useful iterations
 
-After live interoperability testing: provider-confirmed subscription status and catalogue browsing; first-run automatic connection; notifications; profile migration and backup restore UI; a native incremental SQLite backend; then multi-account/network support. Keep each change compatible with the existing mailbox and account format, with migrations when required.
+Verify the preview with live providers. Add incremental SQLite writes and
+indexed search if larger mailboxes make snapshots expensive. Keep migrations
+compatible with current mailbox data and version-one signups.

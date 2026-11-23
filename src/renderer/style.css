@@ -781,3 +781,39 @@ dialog::backdrop {
     transition: background-color 0.12s;
   }
 }
+
+.account-picker {
+  min-width: 110px;
+  max-width: 220px;
+  width: 19%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.unread-results {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.unread-item {
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.unread-item small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}

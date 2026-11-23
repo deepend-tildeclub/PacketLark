@@ -468,7 +468,7 @@ test('queues a direct message and shows it in the outbox', async ({ page }) => {
   await setup(page);
   await click(page.getByRole('button', { name: '＋ New message' }));
   await page.getByLabel('Recipient name').fill('A friendly sysop');
-  await page.getByRole('textbox', { name: 'FidoNet address' }).fill('1:123/456');
+  await page.getByLabel('FidoNet address', { exact: true }).fill('1:123/456');
   await page.getByRole('textbox', { name: 'Subject', exact: true }).fill('Hello from the desktop');
   await page
     .getByRole('textbox', { name: 'Message', exact: true })
@@ -477,6 +477,21 @@ test('queues a direct message and shows it in the outbox', async ({ page }) => {
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await click(page.getByRole('button', { name: /^Outbox/ }));
   await expect(page.locator('.message-row')).toContainText('Hello from the desktop');
+});
+test('suggests a saved recipient without replacing an address already entered', async ({
+  page,
+}) => {
+  await setup(page);
+  await click(page.getByRole('button', { name: '＋ New message' }));
+  const name = page.getByLabel('Recipient name');
+  const address = page.getByLabel('FidoNet address', { exact: true });
+  await name.fill('A friendly sysop');
+  await name.dispatchEvent('change');
+  await expect(address).toHaveValue('1:123/456');
+  await address.fill('1:123/789');
+  await name.fill('A FRIENDLY SYSOP');
+  await name.dispatchEvent('change');
+  await expect(address).toHaveValue('1:123/789');
 });
 test('distinguishes public replies from private replies', async ({ page }) => {
   await setup(page);
@@ -625,7 +640,7 @@ test('cancels queued mail and restores it as a draft without automatically sendi
   await setup(page);
   await click(page.getByRole('button', { name: '＋ New message' }));
   await page.getByLabel('Recipient name').fill('Friend');
-  await page.getByRole('textbox', { name: 'FidoNet address' }).fill('1:123/456');
+  await page.getByLabel('FidoNet address', { exact: true }).fill('1:123/456');
   await page.getByRole('textbox', { name: 'Subject', exact: true }).fill('Cancel this send');
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep as a draft');
   await click(page.getByRole('button', { name: 'Queue message' }));
@@ -1807,4 +1822,122 @@ test('validates a matching point and boss and retains typed values after a keyri
     packetPassword: '',
     areaFixPassword: '',
   });
+});
+
+const secondAccountId = '02451957-4c3e-4a59-abb4-70920a25b543';
+
+async function setupMulti(page: Page) {
+  await page.addInitScript(
+    ({ initial, otherId }) => {
+      const a = { ...initial.account!, provider: 'First provider' };
+      const b = { ...a, provider: 'Second provider', address: '1:123/456.101@fidonet' };
+      const accounts = [
+        { id: 'primary', account: a, unread: 1, paused: false },
+        { id: otherId, account: b, unread: 1, paused: false },
+      ];
+      const first = { ...initial.messages[0], subject: 'First inbox' };
+      const second = { ...first, subject: 'Second inbox', from: 'Another sysop' };
+      const mail: Record<string, Message[]> = { primary: [first], [otherId]: [second] };
+      let active = 'primary';
+      let revision = 0;
+      let notify: ((id: string, accountId?: string) => void) | undefined;
+      Object.defineProperty(window, 'packetlarkTest', {
+        value: { openNotification: () => notify?.(second.id, otherId) },
+      });
+      Object.defineProperty(window, 'packetlark', {
+        value: {
+          state: async () =>
+            structuredClone({
+              ...initial,
+              revision,
+              accountId: active,
+              accounts,
+              account: accounts.find((a) => a.id === active)!.account,
+              messages: mail[active],
+            }),
+          selectAccount: async (id: string) => {
+            active = id;
+            revision++;
+          },
+          mark: async (id: string, patch: { read?: boolean }, owner: string) => {
+            if (owner !== active) throw new Error('Wrong account');
+            Object.assign(
+              mail[owner].find((m) => m.id === id)!,
+              patch,
+            );
+            revision++;
+          },
+          saveDraft: async (draft: Compose, owner: string) => {
+            if (owner !== active) throw new Error('Wrong account');
+            const id = draft.id || crypto.randomUUID();
+            mail[owner] = [
+              ...mail[owner].filter((m) => m.id !== id),
+              { ...first, ...draft, id, folder: 'drafts' },
+            ];
+            revision++;
+            return id;
+          },
+          allUnread: async () => ({
+            total: 2,
+            items: accounts.map((entry) => ({
+              accountId: entry.id,
+              provider: entry.account.provider,
+              messageId: mail[entry.id][0].id,
+              from: mail[entry.id][0].from,
+              subject: mail[entry.id][0].subject,
+              area: '',
+              date: mail[entry.id][0].date,
+            })),
+          }),
+          onNotification: (cb: typeof notify) => {
+            notify = cb;
+          },
+          onChanged: () => () => {},
+        },
+      });
+    },
+    { initial: state, otherId: secondAccountId },
+  );
+  await page.goto('http://127.0.0.1:4173/');
+}
+
+test('switches accounts and opens a same-ID unified unread result in its own mailbox', async ({
+  page,
+}) => {
+  await setupMulti(page);
+  const switcher = page.getByRole('combobox', { name: 'Switch account' });
+  await expect(switcher).toHaveValue('primary');
+  await expect(page.locator('.message-row')).toContainText('First inbox');
+  await switcher.selectOption(secondAccountId);
+  await expect(page.locator('.message-row')).toContainText('Second inbox');
+  await click(page.getByRole('button', { name: 'All unread', exact: true }));
+  const all = page.getByRole('dialog', { name: 'All unread', exact: true });
+  await click(all.getByRole('button', { name: /First inbox.*First provider/ }));
+  await expect(switcher).toHaveValue('primary');
+  await expect(page.locator('.reader-heading h1')).toHaveText('First inbox');
+});
+
+test('defers a notification in another account until the open draft is saved', async ({ page }) => {
+  await setupMulti(page);
+  const switcher = page.getByRole('combobox', { name: 'Switch account' });
+  await expect(switcher).toHaveValue('primary');
+  await click(page.getByRole('button', { name: '＋ New message' }));
+  const draft = page.getByRole('dialog', { name: 'New message' });
+  await draft
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('Keep this under the first account');
+  await page.evaluate(() => window.packetlarkTest.openNotification('incoming'));
+  await expect(draft.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Keep this under the first account',
+  );
+  await expect(switcher).toHaveValue('primary');
+  await click(draft.getByRole('button', { name: 'Save & close', exact: true }).first());
+  await expect(switcher).toHaveValue(secondAccountId);
+  await expect(page.locator('.reader-heading h1')).toHaveText('Second inbox');
+  await switcher.selectOption('primary');
+  await click(page.getByRole('button', { name: /^Drafts/ }));
+  await click(page.locator('.message-row'));
+  await expect(draft.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Keep this under the first account',
+  );
 });

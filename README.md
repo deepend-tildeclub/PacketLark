@@ -2,7 +2,7 @@
 
 FidoNet messaging with a familiar inbox. Built for Windows and Linux, from RetroDigital BBS.
 
-**0.1.0 is a working alpha for controlled point testing.** It contains an actual BinkP client, Type-2+ packet reader/writer, durable SQLite mailbox, desktop interface, and Synchronet point provisioning tool. It needs a live acceptance test against your BinkIT/SBBSecho installation before inviting everyday users. The source does not contain a configured account or contact your BBS automatically.
+**0.2.0 beta is a preview for Windows and Linux.** It includes a real BinkP client, Type-2+ packets, separate SQLite mailboxes for each point, and Synchronet point provisioning. Get an installer from [GitHub Releases](https://github.com/deepend-tildeclub/PacketLark/releases) when one is published. Back up your mailbox before trying a preview.
 
 ## Start here
 
@@ -42,7 +42,13 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Persist incoming mail before sending M_GOT; preserve outgoing bytes, filename, timestamp, and MSGID until acknowledged.
 - Back up the local mailbox using Account → Back up mailbox.
 
-This release supports **one point account and its matching boss node**. Other FTN domains are supported in the account format, but messages cannot cross domains. New accounts cannot replace an installed account inside the UI yet.
+## Multiple accounts
+
+The first account works as before. To add another point, open **Account → Add another account**. Import a signup file or use **Advanced setup**. The switcher appears once you have two accounts and shows which have unread mail. The new account does not replace your current one.
+
+Each account has its own mail, drafts, Outbox, contacts, and discussions. **All unread** in the sidebar takes you to the account that owns the chosen message. **Send & receive** checks the selected account; **Send & receive all** in Account checks enabled accounts in turn. The tray checks all enabled accounts when you have more than one. Pause automatic checks from the Account dialog. You can still check a paused account manually.
+
+Each point uses its matching boss node. Accounts may belong to different FTN domains, but a message still cannot cross domains. See [account setup, backups and preview releases](docs/MULTI-ACCOUNT.md).
 
 ### Conversation view
 
@@ -66,11 +72,11 @@ The optional **Start PacketLark when I sign in** uses Windows login settings or 
 
 ## Advanced connection setup
 
-Importing a sysop-provided `.packetlark` file remains the primary setup path. Without a file, choose **Advanced setup** on the welcome screen, under **Account**, or in **Preferences → Connection setup**. This is for an **existing point account**: it does not create or register a point on the BBS, and version 1 still requires a point address with its matching boss node.
+Importing a sysop-provided `.packetlark` file remains the primary setup path. Without a file, choose **Advanced setup** on the welcome screen, under **Account**, or in **Preferences → Connection setup**. This is for an **existing point account**: it does not create or register a point on the BBS, and each account still requires a point address with its matching boss node.
 
 Enter your name, provider/BBS label, assigned point address, boss-node address, BinkP hostname/IP and port, and session password. Optional packet and AreaFix passwords must match the boss-node configuration; a packet password is at most eight printable ASCII characters without spaces. Leave an optional password empty only if it is not required. Choose the polling interval and outgoing encoding as agreed with your provider. Enable certificate-verified implicit TLS only for a server endpoint that offers it, using that endpoint's port; otherwise BinkP requires CRAM-MD5 and message traffic is not encrypted.
 
-**Set up account** validates and saves through the same keyring-protected account installer used by imports. It does not connect immediately: use **Send & receive** when ready. With an AreaFix password, open **Manage discussions → Get available discussions** to find and join areas. Validation or keyring failures leave the form available to correct/retry. Existing accounts cannot be overwritten, and passwords are never returned in public mailbox state.
+**Set up account** validates and saves through the same keyring-protected account installer used by imports. It does not connect immediately: use **Send & receive** when ready. With an AreaFix password, open **Manage discussions → Get available discussions** to find and join areas. Validation or keyring failures leave the form available to correct/retry. An imported point cannot overwrite an installed account. Use **Account → Connection settings** to update it. Saved passwords are never returned to the interface.
 
 ## Build packages
 
@@ -98,9 +104,9 @@ Windows packages are unsigned in this initial version. Code signing can be added
 
 ## GitHub Actions
 
-Push this directory's **contents**, including `.github/`, to the repository root. The included [workflow](.github/workflows/build.yml) runs on pushes, pull requests, and manual dispatch. Each native runner installs locked dependencies, checks types/lint/formatting, runs protocol/mailbox/provisioning and desktop/UI tests, then **builds actual packages** and uploads them as workflow artifacts. It never publishes a release automatically.
+Push this directory's **contents**, including `.github/`, to the repository root. The included [workflow](.github/workflows/build.yml) runs on pushes, pull requests, and manual dispatch. Each native runner installs locked dependencies, checks types/lint/formatting, runs protocol/mailbox/provisioning and desktop/UI tests, then **builds actual packages** and uploads them as workflow artifacts. Branch builds and pull requests only upload artifacts. Pushing a matching beta tag builds the same packages and publishes them as a GitHub prerelease after all jobs pass.
 
-Open **Actions → Build PacketLark → a successful run → Artifacts** to download Windows or Linux packages. The workflow does not need a repository name, tokens, BBS credentials, or a FidoNet account. The package homepage currently points to the maintainer's GitHub profile; change it to your new repository URL after creating the repo.
+Open **Actions → Build PacketLark → a successful run → Artifacts** to download Windows or Linux packages. The workflow does not need a repository name, tokens, BBS credentials, or a FidoNet account. Published packages and checksums stay on the Releases page after CI artifacts expire.
 
 Commit `package-lock.json`. Dependabot updates npm dependencies and pinned GitHub Actions. TypeScript 6 is retained for compatibility with the current typescript-eslint parser; the lockfile records the tested toolchain.
 
@@ -126,7 +132,7 @@ Unavailable/disabled notification services do not fail mail delivery or packet a
 
 FidoNet is store-and-forward. Sent means the provider accepted the packet, not delivered or read. Direct messages are not end-to-end encrypted. CRAM-MD5 is legacy BinkP authentication, not message encryption; use the optional certificate-verified implicit TLS connection if your provider offers it. The app does not implement BinkD's legacy CRYPT extension or silently downgrade TLS verification.
 
-Messages in `mailbox.sqlite` are local plaintext. The account profile is OS-encrypted, but queued wire packets contain their packet password and pending discussion-management requests contain their AreaFix password. Automatic management traffic is hidden from the mailbox; its request subject/body are cleared after transport acknowledgement, and recognized replies are consumed after processing. Backups therefore need private storage. Moving the database to another computer does not move the OS decryption key. Keep the original signup file securely for a future account move. Restoring a backup is currently a documented offline operation, not a UI feature.
+Messages in `mailbox.sqlite` are local plaintext. The account profile is OS-encrypted, but queued wire packets contain their packet password and pending discussion-management requests contain their AreaFix password. Automatic management traffic is hidden from the mailbox; its request subject/body are cleared after transport acknowledgement, and recognized replies are consumed after processing. Backups therefore need private storage. Moving the database to another computer does not move the OS decryption key. Keep the original signup file securely for a future account move. Use **Account → Restore mailbox** with a backup for the selected point on the same machine/user and keyring. It saves a recovery copy and pauses automatic checks.
 
 **Delete** moves a message to **Trash**, retaining its read/starred flags and original folder. Use **Restore** to recover it, or **Delete permanently** in Trash to remove its local contents after confirmation. Queued mail is removed from the send queue when trashed, and restores to Drafts for review rather than resending automatically. Deletion does not recall mail already accepted by another system or remove a public post from other BBSes.
 
