@@ -36,6 +36,7 @@ const api: Api = {
   testNotification: () => call('testNotification'),
   setReading: (value) => call('reading', value),
   setDesktop: (value) => call('desktop', value),
+  setCheckOnStartup: (value) => call('setCheckOnStartup', value),
   markConversationRead: (id, account) => call('markConversationRead', id, account),
   onPrepareQuit(cb) {
     const listener = (_event: Electron.IpcRendererEvent, token: unknown) => {

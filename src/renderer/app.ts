@@ -1506,6 +1506,39 @@ function preferencesDialog() {
     ),
   );
   body.append(reading);
+  const mailChecks = e('fieldset', 'notification-settings');
+  mailChecks.append(e('legend', '', 'Mail checks'));
+  const checkOnStartup = check(
+    mailChecks,
+    'Send & receive on startup',
+    state.checkOnStartup ?? true,
+  );
+  checkOnStartup.addEventListener('change', () => {
+    const previous = state.checkOnStartup ?? true;
+    checkOnStartup.disabled = true;
+    void (async () => {
+      try {
+        await api.setCheckOnStartup(checkOnStartup.checked);
+        await refresh();
+      } catch (error) {
+        checkOnStartup.checked = previous;
+        notify(
+          error instanceof Error ? error.message : 'Could not save mail check preference.',
+          true,
+        );
+      } finally {
+        checkOnStartup.disabled = false;
+      }
+    })();
+  });
+  mailChecks.append(
+    e(
+      'p',
+      'muted',
+      'Check enabled accounts and send queued mail when PacketLark starts. Paused accounts are skipped.',
+    ),
+  );
+  body.append(mailChecks);
   const desktop = e('fieldset', 'notification-settings');
   desktop.append(e('legend', '', 'Background operation'));
   const current = state.desktop || { keepRunning: false, startAtLogin: false };

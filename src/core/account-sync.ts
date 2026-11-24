@@ -32,6 +32,7 @@ export class AccountSync {
   private batch = false;
   private controller?: AbortController;
   private stopped = false;
+  private startupHandled = false;
   constructor(
     private hooks: {
       emit: () => void;
@@ -54,6 +55,19 @@ export class AccountSync {
       .filter((a) => !a.paused && a.nextCheck <= now && !!snapshot(a).account)
       .sort((a, b) => a.nextCheck - b.nextCheck)[0];
     if (next) void this.run(next).catch(() => {});
+  }
+  async onStartup(enabled: boolean, active: AccountContext, accounts: Iterable<AccountContext>) {
+    if (this.startupHandled || this.stopped) return;
+    this.startupHandled = true;
+    if (!enabled) return;
+    const order = [active, ...[...accounts].filter((account) => account !== active)];
+    if (!order.some((account) => !account.paused && snapshot(account).account)) return;
+    try {
+      await this.all(order);
+    } catch {
+      // The exchange records details on its own account. A background check
+      // must not report another account's failure on the visible mailbox.
+    }
   }
   async all(accounts: AccountContext[]) {
     if (this.busy || this.stopped) return;

@@ -197,6 +197,77 @@ it('checks enabled accounts in order after a failure and records a redacted erro
   accounts.close();
 });
 
+it('checks the active account first at launch, skips paused accounts and continues on failure', async () => {
+  const accounts = await Accounts.open(scratch(), open);
+  const a = await accounts.add(profile);
+  const b = await accounts.add(second);
+  const c = await accounts.add(third);
+  accounts.select(b.id);
+  accounts.pause(c.id, true);
+  const queued = a.store.queue(compose);
+  const paused = c.store.queue({ ...compose, toAddress: '1:234/567.9@othernet' });
+  const attempts: string[] = [];
+  const sync = new AccountSync({
+    emit: () => {},
+    received: () => {},
+    exchange: async (p, files, hooks) => {
+      attempts.push(p.address);
+      if (p.address === second.address) throw new Error('Provider offline');
+      expect(files).toHaveLength(1);
+      await hooks.sent(files[0].name);
+    },
+  });
+  try {
+    await sync.onStartup(true, accounts.active, accounts.contexts.values());
+    await sync.onStartup(true, a, accounts.contexts.values());
+    expect(attempts).toEqual([second.address, profile.address]);
+    expect(b.store.state().lastError).toBe('Provider offline');
+    expect(a.store.state().lastError).toBe('');
+    expect(a.store.messages().find((m) => m.id === queued)?.folder).toBe('sent');
+    expect(c.store.messages().find((m) => m.id === paused)?.folder).toBe('outbox');
+  } finally {
+    accounts.close();
+  }
+});
+
+it('honors a persisted startup opt-out without disabling normal polling', async () => {
+  const root = scratch();
+  const now = 100_000;
+  const before = await Accounts.open(root, open, now);
+  await before.add({ ...profile, pollMinutes: 1 }, now);
+  expect(before.primary.store.checkOnStartup()).toBe(true);
+  before.primary.store.setCheckOnStartup(false);
+  before.close();
+
+  const accounts = await Accounts.open(root, open, now);
+  const account = accounts.primary;
+  let clock = now;
+  const attempts: string[] = [];
+  let finished!: () => void;
+  const complete = new Promise<void>((resolve) => (finished = resolve));
+  const sync = new AccountSync({
+    emit: () => {},
+    received: finished,
+    exchange: async (p) => {
+      attempts.push(p.address);
+    },
+    now: () => clock,
+  });
+  try {
+    expect(account.store.checkOnStartup()).toBe(false);
+    await sync.onStartup(account.store.checkOnStartup(), account, accounts.contexts.values());
+    sync.tick(accounts.contexts.values());
+    expect(attempts).toEqual([]);
+    clock += 60_000;
+    sync.tick(accounts.contexts.values());
+    expect(attempts).toEqual([profile.address]);
+    await complete;
+    expect(account.store.state().lastSync).not.toBeNull();
+  } finally {
+    accounts.close();
+  }
+});
+
 it('keeps same-ID mail separate in unified unread and hides read, control, trashed and hidden discussion mail', async () => {
   const accounts = await Accounts.open(scratch(), open);
   const a = await accounts.add({
@@ -266,6 +337,7 @@ it('validates and restores only the matching account, preserving global preferen
   const backup = s.backup();
   s.sent(queued.name);
   s.setDesktop({ keepRunning: true, startAtLogin: false });
+  s.setCheckOnStartup(false);
   s.setReading({ ...s.readingSettings(), fontSize: 20 });
   const rev = s.revision;
   expect(() => s.prepareRestore(Buffer.from('junk'))).toThrow('SQLite');
@@ -280,6 +352,7 @@ it('validates and restores only the matching account, preserving global preferen
   expect(s.messages().find((m) => m.id === queuedId)?.folder).toBe('outbox');
   expect(s.readingSettings().fontSize).toBe(20);
   expect(s.desktopSettings().keepRunning).toBe(true);
+  expect(s.checkOnStartup()).toBe(false);
   b.close();
   s.close();
 });

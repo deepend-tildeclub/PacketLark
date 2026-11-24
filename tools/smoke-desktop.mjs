@@ -25,6 +25,14 @@ try {
   assert.deepEqual(state.notifications, { enabled: true, discussions: true, previews: true });
   assert.equal(typeof state.notificationsSupported, 'boolean');
   assert.equal(state.desktop.keepRunning, false);
+  assert.equal(state.checkOnStartup, true);
+  await window.evaluate(async () => {
+    await window.packetlark.setCheckOnStartup(false);
+  });
+  assert.equal(
+    await window.evaluate(async () => (await window.packetlark.state()).checkOnStartup),
+    false,
+  );
   const reading = await window.evaluate(async () => {
     const initial = (await window.packetlark.state()).reading;
     await window.packetlark.setReading({ ...initial, fontSize: 18, font: 'monospace' });

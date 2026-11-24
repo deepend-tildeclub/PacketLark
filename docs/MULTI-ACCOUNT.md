@@ -28,9 +28,11 @@ automatic attempt. The Account dialog shows last successful check and the
 most recent exchange error. Common network and TLS errors have suggestions
 on what to check. There is no automatic retry with TLS disabled.
 
-Pause stops automatic polling and excludes that account from **Send &
-receive all**. The selected account can still be checked with **Send &
-receive**. A running exchange is allowed to finish.
+By default, PacketLark checks mail when it starts. To wait for the normal
+poll interval instead, turn off **Preferences → Mail checks → Send & receive
+on startup**. Pause excludes that account from startup checks, automatic
+polling, and **Send & receive all**. You can still check the selected account
+with **Send & receive**. A running exchange is allowed to finish.
 
 Use **Account → Connection settings** to change the hostname, port, TLS,
 polling, encoding, or passwords. Leave password fields blank to keep them.

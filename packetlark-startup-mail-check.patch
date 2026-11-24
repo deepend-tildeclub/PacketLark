@@ -1,0 +1,464 @@
+diff --git a/README.md b/README.md
+index 0585c2b..97ebcff 100644
+--- a/README.md
++++ b/README.md
+@@ -28,7 +28,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while
+ - Large folders initially show 200 rows (conversations or individual messages); **Show older messages** (or **Show newer messages** when sorted oldest first) loads more, while search covers every message in the selected folder. Long grouped conversations initially display 100 bodies, with **Show more of this conversation** to continue.
+ - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
+ - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
+-- Send & receive manually or periodically while the application is running.
++- Send & receive on startup, manually, or periodically while the application is running.
+ - Native Windows/Linux new-mail notifications while the app is in the background, with click-to-open and saved notification preferences.
+ - Optional close-to-tray background operation, unread indicators, and start at sign-in in packaged builds.
+ - First unread navigation, one-action conversation read marking, collapsible replies/quotes/signatures, and saved reading preferences.
+@@ -58,7 +58,14 @@ Select an author inside a grouped conversation to choose a particular message. R
+ 
+ Messages without reply links remain separate. Repeated ambiguous message identifiers are not used to guess a parent. Both view and sort controls continue working for the current session if local preference storage is unavailable. No mailbox conversion or database migration is required.
+ 
+-## Reading and background preferences
++## Reading, mail checks, and background preferences
++
++**Preferences → Mail checks → Send & receive on startup** is on by default.
++When PacketLark starts, it checks the selected account first if enabled, then
++checks the other enabled accounts in turn. It also sends queued mail. Paused
++accounts are skipped. Turn this off to keep the normal polling interval
++without an immediate check. Bringing an already-running app back from the tray
++does not count as a new launch.
+ 
+ PacketLark opens ANSI and DOS box drawings in a fixed-width view when you
+ select the message. Choose **View as art** for plain ASCII drawings, or
+diff --git a/SOURCE-MANIFEST.sha256 b/SOURCE-MANIFEST.sha256
+index 0a26936..4095579 100644
+--- a/SOURCE-MANIFEST.sha256
++++ b/SOURCE-MANIFEST.sha256
+@@ -7,23 +7,23 @@ b5d307d2d34f1065698cb0cf3311519076d13a5b6bd7d9abd4eabd3c0d166c65  .gitignore
+ d61e0ac851a73e227249f1b53c1cbe6d21d5ccf8d82364f8ce0f800600aa722e  .prettierignore
+ f583ff6d8ba542b76af46c4c024a0941b77aee51133bb0f69ec6eb1fa613de7e  .prettierrc.json
+ dba01401a786569262fceec7080d38e16eb14b65713deb7800fe3f5dcf594ea5  LICENSE
+-c7462dcbd2beff8aa047e0659e7f702d04da0e691997018ae69cefe9e3a30f41  README.md
++1ade330844e52b5ea81299607bd99dd49883c7fd19885c155ebed25f49f294a3  README.md
+ 56443c04c1c9e8909834f9a6b19589c8bd2c6b165ac4c1899aed72feb1c4ecce  build/README.md
+ 3b779dd37ac4de1d851affdce5d3bc003149426110c589f3185957fdadd4d5df  build/icon.ico
+ d3b17039df631ed4a28eeae3e1fcf445e460fbfda1fc05f5ec9e2cc766afdd6b  build/icon.png
+ 1343d65b12d8cac879fdfde7e9a29d110fd7d2ee46fb591fa1c8c7b6e01ec204  build/icon.svg
+ 9977d73f729d04198d5ebfee99bf26318b640a4b6ec385e12f216094611793c6  docs/ARCHITECTURE.md
+ 3a5882dbdc598ca0f2829f47342b46b9ba91266b1821aebc98f767942ebaca6a  docs/DEVELOPMENT.md
+-cd07b6b56294c20f3228a82a35c99de42c4dc262f9c91cd7875004e48b91304a  docs/MULTI-ACCOUNT.md
++c64ace1940402e732e4f23b59a20e01c7a9b52d75d843aacc68eccb719d82f03  docs/MULTI-ACCOUNT.md
+ 486416381eea2ff590e3d64991a35f73c3b327414d4ff4b38b62f75dae3a6d62  docs/PREVIEW-RELEASE.md
+ 8a3af3aae558b14cc4564572080d577866a10b6d3a9d86ae43b1ee7e9d72d5a5  docs/SYNCHRONET.md
+ 842a95bfa0817cd86adb5b772fd1d7aac2b61e33671be8c4d4b315ec1fbfd3e1  docs/VALIDATION.md
+ df03b63de48d43f7a82f96b029e96d9e7e237e6621b617aaeac0f83695ab2cd2  eslint.config.js
+ 24bad909cbb5fbd838d4cb5586fc01278a337b3ccb451c272d465a7434cc9d04  examples/account.example.packetlark
+-829e19f5374f0a374949057e6b31785065aa75bd922574d1f008aba21596d31b  package-lock.json
+-2749991d1d3072b4d57c8bfc150f072135afbcf6a57b5e452164bb2759b453d3  package.json
++19b0cc22ef9ef7b3e847b0ade6fed5413a3a4275b3085e1bff68f98d0112a1f1  package-lock.json
++b71455803b81daaadf6c59d8d6cc0dc26b058cc12eb515170ba8734a5f9ea4ce  package.json
+ 7f2a443b6326450fc444329de31607623e263f6542bd4ca85cf955c9b993bd22  playwright.config.ts
+-88dd364f42d0232395888f4bbfdeb61ec58e1ceb24a08e528d26cc6ff4c96cae  src/core/account-sync.ts
++4fb54bacb8ff745118ed88a99b6152dfcff2edb1626c4e0384984ffe9ac49755  src/core/account-sync.ts
+ 66e8f287493e5f26aa16d64afd5bfe38f4d035579ae60f793e59208961b61bca  src/core/accounts.ts
+ 05b30fb6fed2d444a3fbd1bddbf88ade7f84d77ff52307f0fae2f51f25c69791  src/core/areas.ts
+ d43ecb0b396b885157c68db26987d4ec941b567256ddbe80378a81fa8874e918  src/core/art.ts
+@@ -31,24 +31,24 @@ d43ecb0b396b885157c68db26987d4ec941b567256ddbe80378a81fa8874e918  src/core/art.t
+ 6cae97c5b62fc86368dfe3e8f1fb5bdd66b638a2bba33993751bf1cb4fb5ed9c  src/core/contacts.ts
+ 84b39980de9c411b78fce6adbdd004e3811b10daa3e48156f502efa3559b40c6  src/core/conversations.ts
+ a99d3b84a024b4b4013c90b1516942666e89baa84b45bf343cebeed34d775ea6  src/core/discussions.ts
+-cb4866cc87bbc82dd59a9f97f6516c2612e669f7201cdb22a492e7ea866b2e30  src/core/model.ts
++97fc02e069f3389d8d5825cf9e19e523e0ac8b2e0075985808cfd40b3f35c2e1  src/core/model.ts
+ 1ab842918e5174c2d951a3c2bf51ea0d5847afa7d9788ceb9d0f84946e4933ed  src/core/notifications.ts
+ a2308a0925e99a4e18d4e193e202c5b48ff7ca2692a9dafd362c55cacf9693dc  src/core/packet.ts
+ 7cc75a9aa01dc9856be6b9253119db469553ebf2a62ba6a7e979c833c1a7a192  src/core/reading.ts
+-db211821a434109e516074b5e5367739346b0258fb9b55714938126f71692d21  src/core/store.ts
++09ae48d454b9ba26a64e14ae422040271395cd5e62f685323f008d73c1e689a3  src/core/store.ts
+ 572df9dcf35dc323ee2875d1e60554feda77a027255d9a3578bb63cde8e80a41  src/main/background.ts
+-5ac6d0f20dca6c4d2960b18709f4109a53eeedaf8e1a249b9a8aa9bbab181e86  src/main/index.ts
++d4d021a45f28ec809f06470014ed298f7b3f81e828c51dec5cf94952b43976ec  src/main/index.ts
+ 4ee65b8c784bfd9f5e59b87ca3cf8da1aba7b1365a9ccfc4ba997b726fccc050  src/main/notifications.ts
+-a5b8c883cf98fe03a10410bcbd9cda58bc53d4b9e8406147231502edc212e2d2  src/main/preload.cts
++5e842ac7f2417955e6503126348893d331ae0eae4219c13182d179ae0a26a355  src/main/preload.cts
+ 55fb7f10d9af118ba9f2f7f163f262d59e106c3f2681d347b810422994a7c10c  src/main/secret-service.ts
+ d4158cbf6c0d195e290487b96cb5a7a6a746e9fdf4655ababfe4ddb64c483ee5  src/main/startup.ts
+-2868dedb81ab4c7eba97b3c4479f1a4476cb5da6fd088bc683c8f6992f344d11  src/renderer/app.ts
++cfdbccb2f346c2e4d64042e65898f83db99d0c20edf686da3829a38abb4acff3  src/renderer/app.ts
+ da5bf71d48cf909584a01c80b445f730507068f5b34c920f352e2bfcf0315e4c  src/renderer/env.d.ts
+ fa582bda5c02d48f766890f4cce749a8670cb0c5c5dc9d78c418b8925a2e6fd8  src/renderer/index.html
+ 0380b7bbdb1cede2edbc89dd9db7236bb58ec57442dd4671a2ecccbc5edd222f  src/renderer/mailbox.ts
+ 8812a48607559e37bfb37e0db44a7c8a949193bf5015df4cc2c81a5daefc6c45  src/renderer/style.css
+ 1803da702465dae9cfbc21e0f5a0247664a09adb439173528e9a00fd5ddc602a  src/renderer/theme.css
+-afb7c985410da0521e82c32fe889617347c2856448e303a85226752df24fb7e7  tests/accounts.test.ts
++299d10d78549feae9092aa9b0d3c7be299f0c7d0d15c226b91e6221039ab0ade  tests/accounts.test.ts
+ 5c78685d963e7a6133d9fd5179d34aca084a447e1a74b10ceaa6be79d84ff19a  tests/art.test.ts
+ 454144acc0d542154fe8b3dbf4b34811c5834618f35b09f68757198293ba51f2  tests/binkp.test.ts
+ 9116730f5f2e726d161ebc372c7d9ddc815bdb8d036ec4acbb1fee255ccd9f17  tests/conversations.test.ts
+@@ -61,10 +61,10 @@ a295332fff19221141a92c77ceca71deff8ee1a1f00277365c394817237bbb2f  tests/notifica
+ 577003b004b1beec67907f6c05d5df585c08ae3501fb3f452e98437b2add6022  tests/reading-background.test.ts
+ d01406b4e27b56a07d47e2cf89ac9f0e74b95a0e876610460d8a9fa688d7c58d  tests/store.test.ts
+ 5837d7c4c679bd104c30b6a0214506da55a94bbad49833bf1965d958c8eb31a2  tests/ui/harness.cjs
+-e6a1b6538fd43e058342a0872591d9c0a5bfbf63a6d96a40ec1f72c06d533cb8  tests/ui/mailbox.spec.ts
++bfbcd65a19ae3f7b64c66cfa28fc710450048ae76e47024a7c8d1997fdd268f0  tests/ui/mailbox.spec.ts
+ ebde048148950519803593b0d7dd7c393b40602142a64d1229bc5252be05cff3  tools/live_provision.py
+ 0178f1d0b74e611eb754ee574c2a995ec27b59240f240ae4dcd329a80922356f  tools/provision_point.py
+-c0039753572b0879211a056ec9ca23cce44d6479c1e2f1ae9213ffbac999ad01  tools/smoke-desktop.mjs
++fad52e2aeeb34c0d8dd39e2f2a0ee6be1bcaa00b2bd62010da86630d4132aff0  tools/smoke-desktop.mjs
+ e742fbf18194ccd3a9f49a45b54b0139bd8dd3365af2519abdd3003f6e7bdc52  tools/smoke-keyring.mjs
+ 2e06846d964857267028fdd514d683d5beba9d3a22565bc14bcff54f0b3f534b  tools/test_provision_point.py
+ 023786271830eed94e44a0eaf4106302d3456980ad36cf56794c99e3cf15f93a  tsconfig.json
+diff --git a/docs/MULTI-ACCOUNT.md b/docs/MULTI-ACCOUNT.md
+index 8bdf919..6e9d583 100644
+--- a/docs/MULTI-ACCOUNT.md
++++ b/docs/MULTI-ACCOUNT.md
+@@ -28,9 +28,11 @@ automatic attempt. The Account dialog shows last successful check and the
+ most recent exchange error. Common network and TLS errors have suggestions
+ on what to check. There is no automatic retry with TLS disabled.
+ 
+-Pause stops automatic polling and excludes that account from **Send &
+-receive all**. The selected account can still be checked with **Send &
+-receive**. A running exchange is allowed to finish.
++By default, PacketLark checks mail when it starts. To wait for the normal
++poll interval instead, turn off **Preferences → Mail checks → Send & receive
++on startup**. Pause excludes that account from startup checks, automatic
++polling, and **Send & receive all**. You can still check the selected account
++with **Send & receive**. A running exchange is allowed to finish.
+ 
+ Use **Account → Connection settings** to change the hostname, port, TLS,
+ polling, encoding, or passwords. Leave password fields blank to keep them.
+diff --git a/src/core/account-sync.ts b/src/core/account-sync.ts
+index e2779bd..444002e 100644
+--- a/src/core/account-sync.ts
++++ b/src/core/account-sync.ts
+@@ -32,6 +32,7 @@ export class AccountSync {
+   private batch = false;
+   private controller?: AbortController;
+   private stopped = false;
++  private startupHandled = false;
+   constructor(
+     private hooks: {
+       emit: () => void;
+@@ -55,6 +56,19 @@ export class AccountSync {
+       .sort((a, b) => a.nextCheck - b.nextCheck)[0];
+     if (next) void this.run(next).catch(() => {});
+   }
++  async onStartup(enabled: boolean, active: AccountContext, accounts: Iterable<AccountContext>) {
++    if (this.startupHandled || this.stopped) return;
++    this.startupHandled = true;
++    if (!enabled) return;
++    const order = [active, ...[...accounts].filter((account) => account !== active)];
++    if (!order.some((account) => !account.paused && snapshot(account).account)) return;
++    try {
++      await this.all(order);
++    } catch {
++      // The exchange records details on its own account. A background check
++      // must not report another account's failure on the visible mailbox.
++    }
++  }
+   async all(accounts: AccountContext[]) {
+     if (this.busy || this.stopped) return;
+     this.batch = true;
+diff --git a/src/core/model.ts b/src/core/model.ts
+index aedc455..e23a0bb 100644
+--- a/src/core/model.ts
++++ b/src/core/model.ts
+@@ -265,6 +265,7 @@ export type State = {
+   notificationsSupported?: boolean;
+   reading?: ReadingSettings;
+   desktop?: DesktopSettings;
++  checkOnStartup?: boolean;
+   traySupported?: boolean;
+   startupSupported?: boolean;
+ };
+@@ -304,6 +305,7 @@ export type Api = {
+   testNotification(): Promise<void>;
+   setReading(value: ReadingSettings): Promise<void>;
+   setDesktop(value: DesktopSettings): Promise<void>;
++  setCheckOnStartup(enabled: boolean): Promise<void>;
+   markConversationRead(messageId: string, accountId?: string): Promise<void>;
+   onPrepareQuit(cb: () => Promise<boolean>): () => void;
+   onNotification(cb: (messageId: string, accountId?: string) => void): () => void;
+diff --git a/src/core/store.ts b/src/core/store.ts
+index 9d34879..cc51731 100644
+--- a/src/core/store.ts
++++ b/src/core/store.ts
+@@ -236,6 +236,7 @@ export class Store {
+       notifications: this.notificationSettings(),
+       reading: this.readingSettings(),
+       desktop: this.desktopSettings(),
++      checkOnStartup: this.checkOnStartup(),
+     });
+   }
+   notificationSettings(): NotificationSettings {
+@@ -257,6 +258,13 @@ export class Store {
+     if (JSON.stringify(settings) === JSON.stringify(this.desktopSettings())) return;
+     this.mutate(() => this.setMeta('desktop', JSON.stringify(settings)));
+   }
++  checkOnStartup(): boolean {
++    return this.meta('checkOnStartup') !== 'false';
++  }
++  setCheckOnStartup(enabled: boolean): void {
++    if (enabled === this.checkOnStartup()) return;
++    this.mutate(() => this.setMeta('checkOnStartup', String(enabled)));
++  }
+   markConversationRead(id: string): void {
+     const state = this.state();
+     const group = indexConversations(state.messages).get(id);
+@@ -664,7 +672,7 @@ export class Store {
+       const profile = candidate.profile();
+       if (!profile || !sameAddress(current.address, profile.address))
+         throw new Error('This backup belongs to a different point account.');
+-      for (const key of ['desktop', 'reading', 'notifications']) {
++      for (const key of ['desktop', 'reading', 'notifications', 'checkOnStartup']) {
+         const value = this.meta(key);
+         if (value === null) db.run('DELETE FROM meta WHERE key=?', [key]);
+         else candidate.setMeta(key, value);
+diff --git a/src/main/index.ts b/src/main/index.ts
+index 1aaab47..aa8fc18 100644
+--- a/src/main/index.ts
++++ b/src/main/index.ts
+@@ -508,6 +508,7 @@ function register() {
+       storageWarning: credentialWarning(),
+       notificationsSupported: notifications.supported(),
+       desktop: { ...primaryStore().desktopSettings(), startAtLogin: startup.enabled() },
++      checkOnStartup: primaryStore().checkOnStartup(),
+       traySupported: desktop?.available || false,
+       startupSupported: startup.supported(),
+     };
+@@ -572,6 +573,10 @@ function register() {
+     emit();
+   });
+   handle('desktop', (value) => setDesktop(desktopSettingsSchema.parse(value)));
++  handle('setCheckOnStartup', (value) => {
++    primaryStore().setCheckOnStartup(z.boolean().parse(value));
++    emit();
++  });
+   handle('markConversationRead', (id, account) => {
+     accounts.scope(account).store.markConversationRead(z.string().min(1).max(128).parse(id));
+     emit();
+@@ -896,6 +901,13 @@ else {
+         if (typeof value === 'string' && value.length < 2048 && /^https?:\/\//i.test(value))
+           await shell.openExternal(value);
+       });
++      // A new app process checks installed accounts once. A tray reopen, refresh
++      // or later import must not start another launch exchange.
++      void sessions.onStartup(
++        primaryStore().checkOnStartup(),
++        accounts.active,
++        accounts.contexts.values(),
++      );
+     })
+     .catch((error) => {
+       dialog.showErrorBox(
+diff --git a/src/main/preload.cts b/src/main/preload.cts
+index ef1f799..288158d 100644
+--- a/src/main/preload.cts
++++ b/src/main/preload.cts
+@@ -36,6 +36,7 @@ const api: Api = {
+   testNotification: () => call('testNotification'),
+   setReading: (value) => call('reading', value),
+   setDesktop: (value) => call('desktop', value),
++  setCheckOnStartup: (value) => call('setCheckOnStartup', value),
+   markConversationRead: (id, account) => call('markConversationRead', id, account),
+   onPrepareQuit(cb) {
+     const listener = (_event: Electron.IpcRendererEvent, token: unknown) => {
+diff --git a/src/renderer/app.ts b/src/renderer/app.ts
+index 867a9ed..c9db7de 100644
+--- a/src/renderer/app.ts
++++ b/src/renderer/app.ts
+@@ -1506,6 +1506,39 @@ function preferencesDialog() {
+     ),
+   );
+   body.append(reading);
++  const mailChecks = e('fieldset', 'notification-settings');
++  mailChecks.append(e('legend', '', 'Mail checks'));
++  const checkOnStartup = check(
++    mailChecks,
++    'Send & receive on startup',
++    state.checkOnStartup ?? true,
++  );
++  checkOnStartup.addEventListener('change', () => {
++    const previous = state.checkOnStartup ?? true;
++    checkOnStartup.disabled = true;
++    void (async () => {
++      try {
++        await api.setCheckOnStartup(checkOnStartup.checked);
++        await refresh();
++      } catch (error) {
++        checkOnStartup.checked = previous;
++        notify(
++          error instanceof Error ? error.message : 'Could not save mail check preference.',
++          true,
++        );
++      } finally {
++        checkOnStartup.disabled = false;
++      }
++    })();
++  });
++  mailChecks.append(
++    e(
++      'p',
++      'muted',
++      'Check enabled accounts and send queued mail when PacketLark starts. Paused accounts are skipped.',
++    ),
++  );
++  body.append(mailChecks);
+   const desktop = e('fieldset', 'notification-settings');
+   desktop.append(e('legend', '', 'Background operation'));
+   const current = state.desktop || { keepRunning: false, startAtLogin: false };
+diff --git a/tests/accounts.test.ts b/tests/accounts.test.ts
+index 6204383..ba4058a 100644
+--- a/tests/accounts.test.ts
++++ b/tests/accounts.test.ts
+@@ -197,6 +197,77 @@ it('checks enabled accounts in order after a failure and records a redacted erro
+   accounts.close();
+ });
+ 
++it('checks the active account first at launch, skips paused accounts and continues on failure', async () => {
++  const accounts = await Accounts.open(scratch(), open);
++  const a = await accounts.add(profile);
++  const b = await accounts.add(second);
++  const c = await accounts.add(third);
++  accounts.select(b.id);
++  accounts.pause(c.id, true);
++  const queued = a.store.queue(compose);
++  const paused = c.store.queue({ ...compose, toAddress: '1:234/567.9@othernet' });
++  const attempts: string[] = [];
++  const sync = new AccountSync({
++    emit: () => {},
++    received: () => {},
++    exchange: async (p, files, hooks) => {
++      attempts.push(p.address);
++      if (p.address === second.address) throw new Error('Provider offline');
++      expect(files).toHaveLength(1);
++      await hooks.sent(files[0].name);
++    },
++  });
++  try {
++    await sync.onStartup(true, accounts.active, accounts.contexts.values());
++    await sync.onStartup(true, a, accounts.contexts.values());
++    expect(attempts).toEqual([second.address, profile.address]);
++    expect(b.store.state().lastError).toBe('Provider offline');
++    expect(a.store.state().lastError).toBe('');
++    expect(a.store.messages().find((m) => m.id === queued)?.folder).toBe('sent');
++    expect(c.store.messages().find((m) => m.id === paused)?.folder).toBe('outbox');
++  } finally {
++    accounts.close();
++  }
++});
++
++it('honors a persisted startup opt-out without disabling normal polling', async () => {
++  const root = scratch();
++  const now = 100_000;
++  const before = await Accounts.open(root, open, now);
++  await before.add({ ...profile, pollMinutes: 1 }, now);
++  expect(before.primary.store.checkOnStartup()).toBe(true);
++  before.primary.store.setCheckOnStartup(false);
++  before.close();
++
++  const accounts = await Accounts.open(root, open, now);
++  const account = accounts.primary;
++  let clock = now;
++  const attempts: string[] = [];
++  let finished!: () => void;
++  const complete = new Promise<void>((resolve) => (finished = resolve));
++  const sync = new AccountSync({
++    emit: () => {},
++    received: finished,
++    exchange: async (p) => {
++      attempts.push(p.address);
++    },
++    now: () => clock,
++  });
++  try {
++    expect(account.store.checkOnStartup()).toBe(false);
++    await sync.onStartup(account.store.checkOnStartup(), account, accounts.contexts.values());
++    sync.tick(accounts.contexts.values());
++    expect(attempts).toEqual([]);
++    clock += 60_000;
++    sync.tick(accounts.contexts.values());
++    expect(attempts).toEqual([profile.address]);
++    await complete;
++    expect(account.store.state().lastSync).not.toBeNull();
++  } finally {
++    accounts.close();
++  }
++});
++
+ it('keeps same-ID mail separate in unified unread and hides read, control, trashed and hidden discussion mail', async () => {
+   const accounts = await Accounts.open(scratch(), open);
+   const a = await accounts.add({
+@@ -266,6 +337,7 @@ it('validates and restores only the matching account, preserving global preferen
+   const backup = s.backup();
+   s.sent(queued.name);
+   s.setDesktop({ keepRunning: true, startAtLogin: false });
++  s.setCheckOnStartup(false);
+   s.setReading({ ...s.readingSettings(), fontSize: 20 });
+   const rev = s.revision;
+   expect(() => s.prepareRestore(Buffer.from('junk'))).toThrow('SQLite');
+@@ -280,6 +352,7 @@ it('validates and restores only the matching account, preserving global preferen
+   expect(s.messages().find((m) => m.id === queuedId)?.folder).toBe('outbox');
+   expect(s.readingSettings().fontSize).toBe(20);
+   expect(s.desktopSettings().keepRunning).toBe(true);
++  expect(s.checkOnStartup()).toBe(false);
+   b.close();
+   s.close();
+ });
+diff --git a/tests/ui/mailbox.spec.ts b/tests/ui/mailbox.spec.ts
+index 38ee493..d25b6a5 100644
+--- a/tests/ui/mailbox.spec.ts
++++ b/tests/ui/mailbox.spec.ts
+@@ -297,6 +297,10 @@ async function setup(
+             data.desktop = value;
+             emit();
+           },
++          setCheckOnStartup: async (enabled: boolean) => {
++            data.checkOnStartup = enabled;
++            emit();
++          },
+           onPrepareQuit: (cb: () => Promise<boolean>) => {
+             prepareQuit = cb;
+             return () => {
+@@ -1717,6 +1721,26 @@ test('saves opt-in background preferences and disables sign-in startup when back
+   ).toBeDisabled();
+ });
+ 
++test('defaults to startup mail checks and saves the opt-out without needing a tray', async ({
++  page,
++}) => {
++  await setup(page, false);
++  await page.evaluate(() => window.packetlarkTest.setTraySupported(false));
++  const preferences = page.getByRole('button', { name: 'Preferences', exact: true });
++  await click(preferences);
++  const prefs = page.getByRole('dialog', { name: 'Preferences', exact: true });
++  const startup = prefs.getByRole('checkbox', { name: 'Send & receive on startup', exact: true });
++  await expect(startup).toBeChecked();
++  await expect(startup).toBeEnabled();
++  await setReadingCheck(page, 'Send & receive on startup', false);
++  await expect
++    .poll(() => page.evaluate(async () => (await window.packetlark.state()).checkOnStartup))
++    .toBe(false);
++  await click(prefs.getByRole('button', { name: 'Close', exact: true }));
++  await click(preferences);
++  await expect(startup).not.toBeChecked();
++});
++
+ test('flushes a draft immediately before quit and keeps the application open after a failed save', async ({
+   page,
+ }) => {
+diff --git a/tools/smoke-desktop.mjs b/tools/smoke-desktop.mjs
+index 2eb36ad..6c5f509 100644
+--- a/tools/smoke-desktop.mjs
++++ b/tools/smoke-desktop.mjs
+@@ -25,6 +25,14 @@ try {
+   assert.deepEqual(state.notifications, { enabled: true, discussions: true, previews: true });
+   assert.equal(typeof state.notificationsSupported, 'boolean');
+   assert.equal(state.desktop.keepRunning, false);
++  assert.equal(state.checkOnStartup, true);
++  await window.evaluate(async () => {
++    await window.packetlark.setCheckOnStartup(false);
++  });
++  assert.equal(
++    await window.evaluate(async () => (await window.packetlark.state()).checkOnStartup),
++    false,
++  );
+   const reading = await window.evaluate(async () => {
+     const initial = (await window.packetlark.state()).reading;
+     await window.packetlark.setReading({ ...initial, fontSize: 18, font: 'monospace' });

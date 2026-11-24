@@ -297,6 +297,10 @@ async function setup(
             data.desktop = value;
             emit();
           },
+          setCheckOnStartup: async (enabled: boolean) => {
+            data.checkOnStartup = enabled;
+            emit();
+          },
           onPrepareQuit: (cb: () => Promise<boolean>) => {
             prepareQuit = cb;
             return () => {
@@ -1715,6 +1719,26 @@ test('saves opt-in background preferences and disables sign-in startup when back
   await expect(
     prefs.getByRole('checkbox', { name: 'Start PacketLark when I sign in', exact: true }),
   ).toBeDisabled();
+});
+
+test('defaults to startup mail checks and saves the opt-out without needing a tray', async ({
+  page,
+}) => {
+  await setup(page, false);
+  await page.evaluate(() => window.packetlarkTest.setTraySupported(false));
+  const preferences = page.getByRole('button', { name: 'Preferences', exact: true });
+  await click(preferences);
+  const prefs = page.getByRole('dialog', { name: 'Preferences', exact: true });
+  const startup = prefs.getByRole('checkbox', { name: 'Send & receive on startup', exact: true });
+  await expect(startup).toBeChecked();
+  await expect(startup).toBeEnabled();
+  await setReadingCheck(page, 'Send & receive on startup', false);
+  await expect
+    .poll(() => page.evaluate(async () => (await window.packetlark.state()).checkOnStartup))
+    .toBe(false);
+  await click(prefs.getByRole('button', { name: 'Close', exact: true }));
+  await click(preferences);
+  await expect(startup).not.toBeChecked();
 });
 
 test('flushes a draft immediately before quit and keeps the application open after a failed save', async ({

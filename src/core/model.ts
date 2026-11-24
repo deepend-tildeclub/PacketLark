@@ -265,6 +265,7 @@ export type State = {
   notificationsSupported?: boolean;
   reading?: ReadingSettings;
   desktop?: DesktopSettings;
+  checkOnStartup?: boolean;
   traySupported?: boolean;
   startupSupported?: boolean;
 };
@@ -304,6 +305,7 @@ export type Api = {
   testNotification(): Promise<void>;
   setReading(value: ReadingSettings): Promise<void>;
   setDesktop(value: DesktopSettings): Promise<void>;
+  setCheckOnStartup(enabled: boolean): Promise<void>;
   markConversationRead(messageId: string, accountId?: string): Promise<void>;
   onPrepareQuit(cb: () => Promise<boolean>): () => void;
   onNotification(cb: (messageId: string, accountId?: string) => void): () => void;

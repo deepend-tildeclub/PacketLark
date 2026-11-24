@@ -236,6 +236,7 @@ export class Store {
       notifications: this.notificationSettings(),
       reading: this.readingSettings(),
       desktop: this.desktopSettings(),
+      checkOnStartup: this.checkOnStartup(),
     });
   }
   notificationSettings(): NotificationSettings {
@@ -256,6 +257,13 @@ export class Store {
     const settings = desktopSettingsSchema.parse(value);
     if (JSON.stringify(settings) === JSON.stringify(this.desktopSettings())) return;
     this.mutate(() => this.setMeta('desktop', JSON.stringify(settings)));
+  }
+  checkOnStartup(): boolean {
+    return this.meta('checkOnStartup') !== 'false';
+  }
+  setCheckOnStartup(enabled: boolean): void {
+    if (enabled === this.checkOnStartup()) return;
+    this.mutate(() => this.setMeta('checkOnStartup', String(enabled)));
   }
   markConversationRead(id: string): void {
     const state = this.state();
@@ -664,7 +672,7 @@ export class Store {
       const profile = candidate.profile();
       if (!profile || !sameAddress(current.address, profile.address))
         throw new Error('This backup belongs to a different point account.');
-      for (const key of ['desktop', 'reading', 'notifications']) {
+      for (const key of ['desktop', 'reading', 'notifications', 'checkOnStartup']) {
         const value = this.meta(key);
         if (value === null) db.run('DELETE FROM meta WHERE key=?', [key]);
         else candidate.setMeta(key, value);

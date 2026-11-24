@@ -28,7 +28,7 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - Large folders initially show 200 rows (conversations or individual messages); **Show older messages** (or **Show newer messages** when sorted oldest first) loads more, while search covers every message in the selected folder. Long grouped conversations initially display 100 bodies, with **Show more of this conversation** to continue.
 - Compose, automatic draft saving, saved drafts, queued Outbox, and Sent after provider acknowledgement.
 - Delete to Trash, restore, and confirmed permanent deletion; deleting queued mail cancels its pending send and restores to Drafts.
-- Send & receive manually or periodically while the application is running.
+- Send & receive on startup, manually, or periodically while the application is running.
 - Native Windows/Linux new-mail notifications while the app is in the background, with click-to-open and saved notification preferences.
 - Optional close-to-tray background operation, unread indicators, and start at sign-in in packaged builds.
 - First unread navigation, one-action conversation read marking, collapsible replies/quotes/signatures, and saved reading preferences.
@@ -58,7 +58,14 @@ Select an author inside a grouped conversation to choose a particular message. R
 
 Messages without reply links remain separate. Repeated ambiguous message identifiers are not used to guess a parent. Both view and sort controls continue working for the current session if local preference storage is unavailable. No mailbox conversion or database migration is required.
 
-## Reading and background preferences
+## Reading, mail checks, and background preferences
+
+**Preferences → Mail checks → Send & receive on startup** is on by default.
+When PacketLark starts, it checks the selected account first if enabled, then
+checks the other enabled accounts in turn. It also sends queued mail. Paused
+accounts are skipped. Turn this off to keep the normal polling interval
+without an immediate check. Bringing an already-running app back from the tray
+does not count as a new launch.
 
 PacketLark opens ANSI and DOS box drawings in a fixed-width view when you
 select the message. Choose **View as art** for plain ASCII drawings, or

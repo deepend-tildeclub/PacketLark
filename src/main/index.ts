@@ -508,6 +508,7 @@ function register() {
       storageWarning: credentialWarning(),
       notificationsSupported: notifications.supported(),
       desktop: { ...primaryStore().desktopSettings(), startAtLogin: startup.enabled() },
+      checkOnStartup: primaryStore().checkOnStartup(),
       traySupported: desktop?.available || false,
       startupSupported: startup.supported(),
     };
@@ -572,6 +573,10 @@ function register() {
     emit();
   });
   handle('desktop', (value) => setDesktop(desktopSettingsSchema.parse(value)));
+  handle('setCheckOnStartup', (value) => {
+    primaryStore().setCheckOnStartup(z.boolean().parse(value));
+    emit();
+  });
   handle('markConversationRead', (id, account) => {
     accounts.scope(account).store.markConversationRead(z.string().min(1).max(128).parse(id));
     emit();
@@ -896,6 +901,13 @@ else {
         if (typeof value === 'string' && value.length < 2048 && /^https?:\/\//i.test(value))
           await shell.openExternal(value);
       });
+      // A new app process checks installed accounts once. A tray reopen, refresh
+      // or later import must not start another launch exchange.
+      void sessions.onStartup(
+        primaryStore().checkOnStartup(),
+        accounts.active,
+        accounts.contexts.values(),
+      );
     })
     .catch((error) => {
       dialog.showErrorBox(
