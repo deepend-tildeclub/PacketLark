@@ -95,11 +95,17 @@ textarea:focus-visible {
 }
 .sidebar {
   padding: 22px 14px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+.sidebar > * {
+  /* Scroll the list instead of shrinking wrapped labels into neighboring rows. */
+  flex: none;
 }
 .section-label {
   font-size: 10px;
@@ -129,12 +135,19 @@ textarea:focus-visible {
   color: var(--accent-text);
   font-weight: 650;
 }
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
 .count {
   font-size: 11px;
   border-radius: 12px;
   padding: 2px 7px;
   background: var(--count);
   color: var(--text);
+  flex: none;
+  white-space: nowrap;
 }
 .subdued {
   font-size: 12px;
@@ -684,7 +697,9 @@ dialog::backdrop {
   overflow: auto;
 }
 .discussion-browser {
+  width: calc(100vw - clamp(28px, 7vw, 80px));
   max-width: 820px;
+  container-type: inline-size;
 }
 .discussion-controls {
   display: flex;
@@ -700,13 +715,14 @@ dialog::backdrop {
   margin: 0 0 14px;
   max-height: 42vh;
   overflow: auto;
+  scrollbar-gutter: stable;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
 .discussion-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 18px;
   padding: 15px;
   border-bottom: 1px solid var(--border);
@@ -724,7 +740,7 @@ dialog::backdrop {
   overflow-wrap: anywhere;
 }
 .discussion-row button {
-  flex-shrink: 0;
+  justify-self: end;
   min-width: 86px;
 }
 .discussion-badge {
@@ -749,6 +765,30 @@ dialog::backdrop {
 }
 .discussion-manual button {
   margin-right: 10px;
+}
+@container (max-width: 32rem) {
+  .discussion-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px;
+  }
+  .discussion-row button {
+    justify-self: start;
+  }
+}
+@media (max-height: 660px) {
+  .discussion-browser .dialog-header {
+    padding-block: 10px;
+  }
+  .discussion-browser .dialog-body {
+    padding-block: 14px;
+  }
+  .discussion-browser .dialog-body > :first-child {
+    margin-top: 0;
+  }
+  .discussion-progress {
+    min-height: 1.65em;
+  }
 }
 #toast {
   display: none;

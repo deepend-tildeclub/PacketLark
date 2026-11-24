@@ -396,9 +396,14 @@ function renderSidebar() {
     ['trash', 'Trash'],
     ['contacts', 'Contacts'],
   ];
+  const navButton = (name: string, activate: () => void, classes: string) => {
+    const control = button('', activate, classes);
+    control.append(e('span', 'nav-label', name));
+    return control;
+  };
   for (const [id, title] of folders) {
     const count = counts.folders.get(id) || 0;
-    const b = button(
+    const b = navButton(
       title,
       () => {
         folder = id;
@@ -414,12 +419,12 @@ function renderSidebar() {
     sidebar.append(b);
   }
   if ((state.accounts?.length || 0) > 1)
-    sidebar.append(button('All unread', () => allUnreadDialog(), 'nav-item'));
+    sidebar.append(navButton('All unread', () => allUnreadDialog(), 'nav-item'));
   const discussionHeader = e('div', 'section-label section-spaced', 'DISCUSSIONS');
   sidebar.append(discussionHeader);
   for (const area of state.areas) {
     const count = counts.unreadAreas.get(area.tag) || 0;
-    const b = button(
+    const b = navButton(
       area.name,
       () => {
         folder = `area:${area.tag}`;
@@ -433,7 +438,7 @@ function renderSidebar() {
     sidebar.append(b);
   }
   if (state.account)
-    sidebar.append(button('＋ Manage discussions', () => areasDialog(), 'nav-item subdued'));
+    sidebar.append(navButton('＋ Manage discussions', () => areasDialog(), 'nav-item subdued'));
   sidebar.append(
     e('div', 'sidebar-note', 'Independent conversations.\nDelivered through FidoNet.'),
   );
