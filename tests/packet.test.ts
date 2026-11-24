@@ -63,6 +63,39 @@ describe('FTN accounts and wire packets', () => {
     );
     expect(parsePacket(packet, profile)[0].body).toBe('Café');
   });
+  it('imports IBMPC as CP437, keeping DOS box drawings, ANSI codes and padding in a ZIP bundle', () => {
+    const body = '  \x1b[31m╔══╗\x1b[0m\n  ║  ║  \n  ╚══╝';
+    const packet = incomingPacket({ body, subject: 'Café' }, 'CP437', 'IBMPC 2');
+    const [m] = unpackMail(Buffer.from(zipSync({ 'legacy.pkt': packet })), profile);
+    expect(m.body).toBe(body);
+    expect(m.subject).toBe('Café');
+    expect(m.raw).toContain('\x01CHRS: IBMPC 2');
+  });
+  it.each(['850', 'CP850', 'IBM850'])('honors the IBMPC CODEPAGE override %s', (page) => {
+    const body = '£ Ø ø';
+    const packet = incomingPacket(
+      { body, to: 'Øyvind' },
+      'CP850',
+      `ibmpc 2\r\x01CODEPAGE: ${page}`,
+    );
+    expect(parsePacket(packet, profile)[0]).toMatchObject({ body, to: 'Øyvind' });
+  });
+  it('keeps explicit non-IBMPC labels authoritative and rejects unknown encodings', () => {
+    const pkt = incomingPacket({ body: 'Hello 🌲' }, 'UTF-8', 'UTF8 4\r\x01CODEPAGE: 850');
+    expect(parsePacket(pkt, profile)[0].body).toBe('Hello 🌲');
+    expect(() =>
+      parsePacket(incomingPacket({}, 'CP437', 'IBMPC 2\r\x01CODEPAGE: 9999'), profile),
+    ).toThrow('Unsupported message encoding: 9999. Packet retained by provider.');
+    expect(() => parsePacket(incomingPacket({}, 'CP437', 'X-UNKNOWN 2'), profile)).toThrow(
+      'Unsupported message encoding: X-UNKNOWN. Packet retained by provider.',
+    );
+  });
+  it('preserves indentation in ASCII art and still strips FTN transport lines', () => {
+    const body = '   +----+\n   |    |  \n   +----+';
+    const [m] = parsePacket(incomingPacket({ body }), profile);
+    expect(m.body).toBe(body);
+    expect(m.body).not.toContain('MSGID');
+  });
   it('rejects characters that would silently corrupt legacy encodings', () =>
     expect(() =>
       buildPacket({ ...profile, charset: 'CP437' }, { ...compose, body: 'Hello 🌲' }, 'id'),

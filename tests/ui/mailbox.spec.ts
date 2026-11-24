@@ -452,6 +452,52 @@ test('reads messages safely as text, marks read, stars and searches', async ({ p
   await page.getByRole('searchbox').fill('absent search');
   await expect(page.getByText('No matching messages.')).toBeVisible();
 });
+test('shows ANSI colors and cursor placement, preserves plain replies and keeps control strings inert', async ({
+  page,
+}) => {
+  const art = {
+    ...message,
+    subject: 'DOS art',
+    body: '\x1b[31m╔══╗\x1b[0m\x1b[2;2H<em>hi</em>\x1b]8;;https://example.invalid\x07',
+  };
+  await setup(page, true, state.discussions, [art]);
+  await click(page.locator('.message-row'));
+  const artwork = page.locator('.ansi-art');
+  await expect(artwork).toHaveText('╔══╗ <em>hi</em>');
+  await expect(artwork.getByText('╔══╗', { exact: true })).toHaveCSS('color', 'rgb(170, 0, 0)');
+  await expect(artwork).toHaveCSS('white-space', 'pre');
+  await expect(artwork.locator('a, em')).toHaveCount(0);
+  await click(page.getByRole('button', { name: 'Read as text' }));
+  await expect(page.locator('.body-text')).toHaveText('╔══╗<em>hi</em>');
+  await expect(page.locator('.preview')).not.toContainText('[31m');
+  await click(page.getByRole('button', { name: 'Reply', exact: true }));
+  const quote = await page.getByRole('textbox', { name: 'Message', exact: true }).inputValue();
+  expect(quote).toContain('> ╔══╗<em>hi</em>');
+  expect(quote).not.toContain('\x1b');
+  expect(quote).not.toContain('example.invalid');
+});
+test('can view older ASCII art at its original spacing without changing the reading preference', async ({
+  page,
+}) => {
+  const body = '   +---+\n   |   |  \n   +---+';
+  await setup(page, true, state.discussions, [
+    {
+      ...message,
+      subject: 'ASCII drawing',
+      body: body.trim(),
+      raw: `\x01MSGID: 1:123/456 abc\n${body}\n`,
+    },
+  ]);
+  await click(page.locator('.message-row'));
+  await expect(page.locator('.art-text')).toHaveCount(0);
+  await click(page.getByRole('button', { name: 'View as art' }));
+  expect(await page.locator('.art-text').textContent()).toBe(body);
+  await expect(page.locator('.art-text')).toHaveCSS('white-space', 'pre');
+  await click(page.getByRole('button', { name: 'Read as text' }));
+  await expect(page.locator('.art-text')).toHaveCount(0);
+  await expect(page.locator('.body-text')).toHaveCSS('white-space', 'pre-wrap');
+  expect(await page.locator('.body-text').textContent()).toBe(body.trim());
+});
 test('composes, automatically saves an incomplete draft and reopens it', async ({ page }) => {
   await setup(page);
   await click(page.getByRole('button', { name: '＋ New message' }));

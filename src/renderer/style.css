@@ -389,6 +389,28 @@ button.danger {
 .monospace .body-text {
   font-family: ui-monospace, 'Cascadia Mono', 'DejaVu Sans Mono', monospace;
 }
+.art-view {
+  margin: 6px 0;
+}
+.art-text {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  max-width: 100%;
+  max-height: 65vh;
+  white-space: pre;
+  tab-size: 8;
+  font-family: 'Cascadia Mono', 'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace;
+  font-size: var(--message-font-size, 14px);
+  line-height: 1.15;
+  font-variant-ligatures: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.ansi-art {
+  color: #aaa;
+  background: #000;
+}
 .compact .message-row {
   padding: 10px 18px;
 }

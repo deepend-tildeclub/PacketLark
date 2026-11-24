@@ -43,7 +43,7 @@ function hello(s: net.Socket, addr = profile.uplink.address) {
 const hooks = { receive: async () => {}, sent: async () => {}, status: () => {} };
 describe('real TCP BinkP sessions', () => {
   it('authenticates with a byte-decoded challenge, imports mail, then acknowledges the committed file', async () => {
-    const data = incomingPacket(),
+    const data = incomingPacket({ body: '  ╔══╗' }, 'CP437', 'IBMPC 2'),
       events: string[] = [];
     const mock = await server(async (s) => {
       hello(s);
@@ -71,7 +71,7 @@ describe('real TCP BinkP sessions', () => {
       await exchange({ ...profile, uplink: { ...profile.uplink, port: mock.port } }, [], {
         ...hooks,
         receive: async (file) => {
-          expect(parsePacket(file.bytes, profile)).toHaveLength(1);
+          expect(parsePacket(file.bytes, profile).map((m) => m.body)).toEqual(['  ╔══╗']);
           await new Promise((r) => setTimeout(r, 10));
           events.push('committed');
         },

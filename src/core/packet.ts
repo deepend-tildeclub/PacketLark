@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import iconv from 'iconv-lite';
 import { unzipSync } from 'fflate';
+import { visibleMessageBody } from './art.js';
 import {
   address,
   formatAddress,
@@ -12,6 +13,31 @@ import {
 
 export const MAX_FILE = 16 * 1024 * 1024;
 const MAX_EXPANDED = 32 * 1024 * 1024;
+function messageEncoding(bytes: Buffer): string {
+  const raw = bytes.toString('latin1');
+  const chrs = /(?:^|[\r\n])\x01CHRS:[ \t]*([^\s]+)/i.exec(raw)?.[1] || 'CP437';
+  const codepage =
+    chrs.toUpperCase() === 'IBMPC'
+      ? /(?:^|[\r\n])\x01CODEPAGE:[ \t]*([^\s]+)/i.exec(raw)?.[1]
+      : undefined;
+  const code = chrs.toUpperCase();
+  // IBMPC originally meant CP437. Some legacy tossers specify a different DOS page separately.
+  const encoding =
+    code === 'IBMPC'
+      ? codepage
+        ? codepage.replace(/^(?:CP|IBM)?(\d{3,4})$/i, 'cp$1')
+        : 'cp437'
+      : code === '+7_FIDO'
+        ? 'cp866'
+        : /^LATIN-?[125]$/.test(code)
+          ? `iso-8859-${code.endsWith('5') ? 9 : code.at(-1)}`
+          : chrs;
+  if (!iconv.encodingExists(encoding))
+    throw new Error(
+      `Unsupported message encoding: ${(codepage || chrs).replace(/[^a-z\d_+.-]/gi, '?').slice(0, 40)}. Packet retained by provider.`,
+    );
+  return encoding;
+}
 const word = (n: number) => {
   const b = Buffer.alloc(2);
   b.writeUInt16LE(n);
@@ -199,14 +225,9 @@ export function parsePacket(bytes: Buffer, profile: Profile): Message[] {
       fromBytes = take(35),
       subjectBytes = take(71),
       bodyBytes = take(256 * 1024);
-    const ascii = bodyBytes.toString('latin1');
-    const chrs = /\x01CHRS:\s*([\w-]+)/i.exec(ascii)?.[1] || 'CP437';
-    const enc = chrs.toUpperCase() === 'UTF-8' || chrs.toUpperCase() === 'UTF8' ? 'utf8' : chrs;
-    if (!iconv.encodingExists(enc))
-      throw new Error(`Unsupported message encoding: ${chrs}. Packet retained by provider.`);
+    const enc = messageEncoding(bodyBytes);
     const raw = iconv.decode(bodyBytes, enc).replace(/\r\n?/g, '\n');
-    const lines = raw.split('\n');
-    const area = /^AREA:([^\s]+)$/.exec(lines[0])?.[1] || '';
+    const area = /^AREA:([^\s]+)(?:\n|$)/.exec(raw)?.[1] || '';
     const intl = /^\x01INTL\s+(\d+:\d+\/\d+)\s+(\d+:\d+\/\d+)/m.exec(raw);
     const originLine = /^ \* Origin:.*\((\d+:\d+\/\d+(?:\.\d+)?(?:@[\w.-]+)?)\)\s*$/m.exec(
       raw,
@@ -238,12 +259,7 @@ export function parsePacket(bytes: Buffer, profile: Profile): Message[] {
       throw new Error('Direct message is addressed to another point.');
     const msgid = /^\x01MSGID:\s*(.+)$/m.exec(raw)?.[1]?.trim() || '';
     const replyId = /^\x01REPLY:\s*(.+)$/m.exec(raw)?.[1]?.trim() || '';
-    const body = lines
-      .filter(
-        (line, i) => !(i === 0 && area) && !line.startsWith('\x01') && !line.startsWith('SEEN-BY:'),
-      )
-      .join('\n')
-      .trim();
+    const body = visibleMessageBody(raw);
     const hash = createHash('sha256')
       .update(
         `${area}\0${msgid || Buffer.concat([fromBytes, toBytes, subjectBytes, bodyBytes]).toString('base64')}\0${fromAddr}`,

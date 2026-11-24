@@ -60,6 +60,13 @@ Messages without reply links remain separate. Repeated ambiguous message identif
 
 ## Reading and background preferences
 
+PacketLark opens ANSI and DOS box drawings in a fixed-width view when you
+select the message. Choose **View as art** for plain ASCII drawings, or
+**Read as text** to return to normal wrapping and reading preferences.
+ANSI colors and cursor positioning are shown as static art. Replies quote
+plain text. For old mail marked `IBMPC`, the reader uses CP437 unless the
+message supplies a supported `CODEPAGE` override.
+
 Open **Preferences** in the toolbar to choose message text size (12–24 px), system or monospace font, and comfortable or compact spacing. Optional switches collapse read replies, quoted text, and signatures/message footers. These display choices are saved in your local mailbox. Folded text can always be expanded, and **Show original text** restores the complete plain-text display. Reply quoting and message details still use the original message.
 
 In a grouped conversation, **First unread** selects the oldest received unread message, even beyond the initial 100-body page. **Mark conversation read** marks received messages in that explicit thread together; it leaves other conversations, deleted mail, and outgoing flags alone. **Collapse read replies** and **Expand replies** change the current thread without changing your saved preference. The selected message stays expanded, and the existing per-message reply, star, read/unread, details, and delete actions remain available.

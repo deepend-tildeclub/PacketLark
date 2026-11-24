@@ -16,6 +16,7 @@ import { recipientSuggestions } from '../core/contacts.js';
 import { visibleDiscussions } from '../core/areas.js';
 import { defaultNotifications } from '../core/notifications.js';
 import { bodyBlocks, defaultReading, firstUnread } from '../core/reading.js';
+import { hasAnsi, hasArt, plainMessageText, renderAnsi, visibleMessageBody } from '../core/art.js';
 import type { ReadingSettings, DesktopSettings } from '../core/model.js';
 declare global {
   interface Window {
@@ -58,6 +59,7 @@ let threadViewKey = '';
 let collapseOverride: boolean | undefined;
 const expandedBodies = new Map<string, boolean>();
 const originalBodies = new Set<string>();
+const artModes = new Map<string, boolean>();
 let flushDraft: (() => Promise<boolean>) | undefined;
 const rowCache = new Map<string, { key: string; node: HTMLButtonElement }>();
 let currentRows = new Map<string, MailboxRow>();
@@ -248,6 +250,7 @@ function refresh(): Promise<void> {
         rowCache.clear();
         expandedBodies.clear();
         originalBodies.clear();
+        artModes.clear();
         collapseOverride = undefined;
         indexedMessages = undefined;
         messageList.scrollTop = reader.scrollTop = 0;
@@ -545,7 +548,8 @@ function renderMailbox() {
     sortOrder,
     (m) =>
       (!unreadOnly || !m.read) &&
-      (!term || `${m.from} ${m.to} ${m.subject} ${m.body}`.toLowerCase().includes(term)),
+      (!term ||
+        `${m.from} ${m.to} ${m.subject} ${plainMessageText(m.body)}`.toLowerCase().includes(term)),
   );
   currentRows = new Map(rows.map((row) => [row.key, row]));
   const selectedConversation = grouped ? conversations.get(selection) : undefined;
@@ -572,6 +576,10 @@ function renderMailbox() {
   for (const id of rowCache.keys()) if (!visibleIds.has(id)) rowCache.delete(id);
   for (const row of visible) {
     const m = row.message;
+    const preview = plainMessageText(m.body.slice(0, 1024))
+      .trimStart()
+      .slice(0, 140)
+      .replace(/\n/g, ' ');
     const key = JSON.stringify([
       m.from,
       m.to,
@@ -581,7 +589,7 @@ function renderMailbox() {
       row.starred,
       row.total,
       row.total > 1 ? row.unread : 0,
-      m.body.slice(0, 140),
+      preview,
       row.latest.date,
       !!m.error,
     ]);
@@ -615,7 +623,7 @@ function renderMailbox() {
       b.replaceChildren(
         top,
         e('div', 'subject', `${row.starred ? '★ ' : ''}${m.subject || '(No subject)'}`),
-        e('p', 'preview', m.body.slice(0, 140).replace(/\n/g, ' ')),
+        e('p', 'preview', preview),
       );
       if (row.total > 1)
         b.append(
@@ -721,21 +729,87 @@ function jumpToUnread() {
   article?.querySelector<HTMLButtonElement>('.thread-select')?.focus({ preventScroll: true });
   void action(() => api.mark(next.id, { read: true }, state.accountId));
 }
+function artwork(message: Message): HTMLElement {
+  const box = e('div', 'artwork');
+  // Older imports trimmed the first line's padding. Recover it only when raw
+  // framing yields the same saved text, not for drafts or a rewritten message.
+  const wire = visibleMessageBody(message.raw);
+  const source = wire.trim() === message.body.trim() ? wire : message.body;
+  const ansi = hasAnsi(source);
+  const pre = e('pre', ansi ? 'art-text ansi-art' : 'art-text');
+  pre.tabIndex = 0;
+  pre.setAttribute('aria-label', ansi ? 'ANSI art' : 'Fixed-width message art');
+  if (!ansi) pre.textContent = plainMessageText(source);
+  else {
+    const { lines, limited } = renderAnsi(source);
+    let spans = 4096;
+    lines.forEach((line, i) => {
+      if (i) pre.append('\n');
+      for (let j = 0; j < line.length; j++) {
+        if (spans <= 0) {
+          pre.append(
+            line
+              .slice(j)
+              .map((run) => run.text)
+              .join(''),
+          );
+          break;
+        }
+        const run = line[j];
+        if (!run.foreground && !run.background) pre.append(run.text);
+        else {
+          const span = e('span', '', run.text);
+          if (run.foreground) span.style.color = run.foreground;
+          if (run.background) span.style.backgroundColor = run.background;
+          if (run.underline) span.style.textDecoration = 'underline';
+          pre.append(span);
+          spans--;
+        }
+      }
+    });
+    if (limited || spans <= 0)
+      box.append(e('p', 'muted', 'Art preview limited. Choose Read as text to see the message.'));
+  }
+  box.prepend(pre);
+  return box;
+}
 function messageText(message: Message): HTMLElement {
   const container = e('div', 'message-text');
-  const settings = state.reading || defaultReading;
-  if (!settings.collapseQuotes && !settings.collapseSignatures) {
-    container.append(e('pre', 'body-text', message.body));
+  const likelyArt = hasArt(message.body);
+  const art = artModes.get(message.id) ?? (likelyArt && message.id === selection);
+  const view = button(
+    art ? 'Read as text' : 'View as art',
+    () => {
+      artModes.set(message.id, !art);
+      const next = messageText(message);
+      container.replaceWith(next);
+      next.querySelector<HTMLButtonElement>('.art-view')?.focus({ preventScroll: true });
+    },
+    'small art-view',
+  );
+  if (art) {
+    container.append(view, artwork(message));
     return container;
   }
-  const blocks = bodyBlocks(message.body);
+  if (likelyArt) container.append(view);
+  const body = plainMessageText(message.body);
+  const finish = () => {
+    if (!likelyArt) container.append(view);
+    return container;
+  };
+  const settings = state.reading || defaultReading;
+  if (!settings.collapseQuotes && !settings.collapseSignatures) {
+    container.append(e('pre', 'body-text', body));
+    return finish();
+  }
+  const blocks = bodyBlocks(body);
   const fold = (kind: string) =>
     kind === 'quote'
       ? settings.collapseQuotes
       : kind === 'signature' && settings.collapseSignatures;
   if (!blocks.some((block) => fold(block.kind))) {
-    container.append(e('pre', 'body-text', message.body));
-    return container;
+    container.append(e('pre', 'body-text', body));
+    return finish();
   }
   const raw = originalBodies.has(message.id);
   const toggle = button(
@@ -745,12 +819,12 @@ function messageText(message: Message): HTMLElement {
       else originalBodies.add(message.id);
       const next = messageText(message);
       container.replaceWith(next);
-      next.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+      next.querySelector<HTMLButtonElement>('.original-text')?.focus({ preventScroll: true });
     },
     'small original-text',
   );
   container.append(toggle);
-  if (raw) container.append(e('pre', 'body-text', message.body));
+  if (raw) container.append(e('pre', 'body-text', body));
   else
     for (const block of blocks) {
       const pre = e('pre', 'body-text', block.text);
@@ -764,7 +838,7 @@ function messageText(message: Message): HTMLElement {
         container.append(details);
       }
     }
-  return container;
+  return finish();
 }
 function conversation(m: Message) {
   // Thread only on explicit FTN MSGID/REPLY links within the same area. Never merge by subject.
@@ -1082,7 +1156,7 @@ function reply(m: Message, privately: boolean) {
     to: m.from,
     toAddress: m.fromAddress,
     subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
-    body: `\n\nOn ${date(m.date)}, ${m.from} wrote:\n${m.body
+    body: `\n\nOn ${date(m.date)}, ${m.from} wrote:\n${plainMessageText(m.body)
       .split('\n')
       .map((s) => `> ${s}`)
       .join('\n')}`,
