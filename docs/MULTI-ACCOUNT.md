@@ -22,6 +22,11 @@ yourself.
 
 ## Checks and connection settings
 
+Use **All mail** beside the search box to search every available account and
+folder. Results show the account and folder, and open in the mailbox that
+owns the message. **Manage discussions** offers Pin and Mute per account.
+Muting skips desktop alerts; messages still arrive and count as unread.
+
 Automatic checks are tracked per account and run one exchange at a time. One
 failed account does not stop the others; repeated failures delay its next
 automatic attempt. The Account dialog shows last successful check and the

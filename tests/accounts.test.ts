@@ -9,6 +9,7 @@ import { parsePacket } from '../src/core/packet.js';
 import { recipientSuggestions } from '../src/core/contacts.js';
 import {
   accountNotificationTarget,
+  newMailNotice,
   notificationTarget,
   windowsToast,
 } from '../src/core/notifications.js';
@@ -44,6 +45,103 @@ const third = {
 const received = () => parsePacket(incomingPacket(), profile)[0];
 afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+it('keeps pin and mute per account and suppresses just the muted discussion notification', async () => {
+  const root = scratch();
+  const accounts = await Accounts.open(root, open);
+  const a = await accounts.add({
+    ...profile,
+    areas: [...profile.areas, { tag: 'ADMIN', name: 'ADM staff' }],
+  });
+  const b = await accounts.add(second);
+  expect(() => a.store.setDiscussionPreference('ADMIN', { pinned: true, muted: true })).toThrow(
+    'no longer available',
+  );
+  const post = { ...received(), area: 'TEST', subject: 'Public post' };
+  const direct = {
+    ...received(),
+    id: 'direct-notice',
+    msgid: 'direct-notice',
+    area: '',
+    subject: 'Direct note',
+  };
+  a.store.receive([post, direct]);
+  b.store.receive([post]);
+  a.store.setDiscussionPreference('TEST', { pinned: true, muted: true });
+  accounts.close();
+  const again = await Accounts.open(root, open);
+  try {
+    const state = snapshot(again.primary);
+    expect(state.discussionPreferences).toEqual([{ tag: 'TEST', pinned: true, muted: true }]);
+    expect(newMailNotice(new Set([post.id]), state)).toBeNull();
+    expect(newMailNotice(new Set([post.id, direct.id]), state)?.messageId).toBe(direct.id);
+    expect(newMailNotice(new Set([post.id]), snapshot(again.require(b.id)))?.messageId).toBe(
+      post.id,
+    );
+    expect(again.unread('newest', 0).items.map((item) => item.messageId)).toContain(post.id);
+    again.primary.store.setDiscussionPreference('TEST', { pinned: true, muted: false });
+    expect(newMailNotice(new Set([post.id]), snapshot(again.primary))?.messageId).toBe(post.id);
+  } finally {
+    again.close();
+  }
+});
+
+it('searches folders and accounts, keeping same-ID hits and excluding hidden discussion and management mail', async () => {
+  const accounts = await Accounts.open(scratch(), open);
+  const a = await accounts.add({
+    ...profile,
+    areas: [...profile.areas, { tag: 'ADMIN', name: 'ADM staff' }],
+  });
+  const b = await accounts.add(second);
+  try {
+    const msg = {
+      ...received(),
+      subject: 'Topic',
+      body: '\x1b[31mreal needle\x1b[0m',
+      date: '2024-01-01T00:00:00Z',
+    };
+    a.store.receive([
+      msg,
+      { ...msg, id: 'trash', msgid: 'trashed needle' },
+      { ...msg, id: 'hidden', msgid: 'hidden needle', area: 'ADMIN' },
+      { ...msg, id: 'management', msgid: 'internal needle', internal: true },
+      ...Array.from({ length: 105 }, (_, i) => ({ ...msg, id: `bulk-${i}`, msgid: `bulk-${i}` })),
+    ]);
+    b.store.receive([{ ...msg, area: 'TEST', date: '2025-01-01T00:00:00Z' }]);
+    a.store.trashMessage('trash');
+    b.store.saveDraft({ ...compose, subject: 'Draft needle' });
+    const sent = b.store.queue({ ...compose, subject: 'Needle sent' });
+    b.store.sent(b.store.pending()[0].name);
+    const queued = b.store.queue({ ...compose, subject: 'Needle queued' });
+    b.store.requestAreaList();
+    const first = accounts.searchMail({ query: ' NEEDLE ', order: 'newest', offset: 0 });
+    const next = accounts.searchMail({ query: 'needle', order: 'newest', offset: 100 });
+    const all = [...first.items, ...next.items];
+    expect(first.total).toBe(111);
+    expect(first.items).toHaveLength(100);
+    expect(new Set(all.map((item) => `${item.accountId}:${item.messageId}`)).size).toBe(
+      first.total,
+    );
+    expect(all.filter((item) => item.messageId === msg.id)).toHaveLength(2);
+    expect(all.find((item) => item.messageId === msg.id && item.accountId === b.id)).toMatchObject({
+      area: 'Test discussion',
+      folder: 'inbox',
+      preview: 'real needle',
+    });
+    expect(all).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ folder: 'drafts', accountId: b.id }),
+        expect.objectContaining({ folder: 'sent', messageId: sent }),
+        expect.objectContaining({ folder: 'outbox', messageId: queued }),
+        expect.objectContaining({ folder: 'trash', messageId: 'trash' }),
+      ]),
+    );
+    expect(all.some((item) => ['hidden', 'management'].includes(item.messageId))).toBe(false);
+    expect(accounts.searchMail({ query: 'testarea', order: 'newest', offset: 0 }).total).toBe(0);
+  } finally {
+    accounts.close();
+  }
 });
 
 it('opens an empty mailbox without unlocking and leaves an existing mailbox intact on cancellation', async () => {

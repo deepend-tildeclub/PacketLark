@@ -2,7 +2,15 @@ import net from 'node:net';
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import { describe, it, expect } from 'vitest';
-import { CMD, exchange, frame, readFrames, type MailFile } from '../src/core/binkp.js';
+import {
+  CMD,
+  exchange,
+  frame,
+  readFrames,
+  testConnection,
+  type MailFile,
+} from '../src/core/binkp.js';
+import { AccountSync } from '../src/core/account-sync.js';
 import { parsePacket } from '../src/core/packet.js';
 import { profile, incomingPacket } from './fixtures.js';
 
@@ -42,6 +50,54 @@ function hello(s: net.Socket, addr = profile.uplink.address) {
 }
 const hooks = { receive: async () => {}, sent: async () => {}, status: () => {} };
 describe('real TCP BinkP sessions', () => {
+  it('ends a connection test at authentication without offering, requesting or acknowledging mail', async () => {
+    const commands: (number | null)[] = [];
+    let ended!: () => void;
+    const closed = new Promise<void>((resolve) => (ended = resolve));
+    const packet = incomingPacket();
+    const mock = await server(async (s) => {
+      s.once('close', ended);
+      hello(s);
+      for await (const f of readFrames(s)) {
+        commands.push(f.command);
+        if (f.command === CMD.PWD) {
+          expect(f.data.toString()).toMatch(/^CRAM-MD5-[0-9a-f]{32}$/);
+          s.write(
+            Buffer.concat([
+              frame(CMD.OK, 'secure'),
+              frame(CMD.FILE, `waiting.pkt ${packet.length} 123 0`),
+              frame(null, packet),
+              frame(CMD.EOB, ''),
+            ]),
+          );
+        }
+      }
+    });
+    try {
+      const p = { ...profile, uplink: { ...profile.uplink, port: mock.port } };
+      await testConnection(p);
+      await closed;
+      expect(commands).toEqual([CMD.NUL, CMD.NUL, CMD.NUL, CMD.NUL, CMD.ADR, CMD.PWD]);
+      expect(mock.errors).toEqual([]);
+    } finally {
+      await mock.close();
+    }
+  });
+  it('explains rejected credentials without displaying the provider response', async () => {
+    const mock = await server(async (s) => {
+      hello(s);
+      for await (const f of readFrames(s))
+        if (f.command === CMD.PWD) s.write(frame(CMD.ERR, 'secret echoed by the server'));
+    });
+    try {
+      const tests = new AccountSync({ emit: () => {}, received: () => {} });
+      const p = { ...profile, uplink: { ...profile.uplink, port: mock.port } };
+      await expect(tests.test(p)).rejects.toThrow('Check your point address and session password');
+      expect(tests.busy).toBe(false);
+    } finally {
+      await mock.close();
+    }
+  });
   it('authenticates with a byte-decoded challenge, imports mail, then acknowledges the committed file', async () => {
     const data = incomingPacket({ body: '  ╔══╗' }, 'CP437', 'IBMPC 2'),
       events: string[] = [];

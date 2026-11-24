@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   Compose,
+  DiscussionPreference,
+  MailSearch,
   Message,
   NotificationSettings,
   ReadingSettings,
@@ -110,6 +112,7 @@ async function setup(
   account = true,
   directory = state.discussions,
   messages = state.messages,
+  areas = state.areas,
 ) {
   await page.addInitScript(
     ({ initial, account }) => {
@@ -223,6 +226,17 @@ async function setup(
               charset: value.charset,
             };
             data.areas = value.areas;
+            emit();
+          },
+          testSetupConnection: async (value: Profile) => {
+            if (value.uplink.port === 99)
+              throw new Error('The server refused the connection. Check the port.');
+          },
+          setDiscussionPreference: async (tag: string, value: DiscussionPreference) => {
+            data.discussionPreferences = [
+              ...(data.discussionPreferences || []).filter((item) => item.tag !== tag),
+              { tag, ...value },
+            ];
             emit();
           },
           sync: async () => {
@@ -437,7 +451,7 @@ async function setup(
         },
       });
     },
-    { initial: { ...state, discussions: directory, messages }, account },
+    { initial: { ...state, discussions: directory, messages, areas }, account },
   );
   await page.goto('http://127.0.0.1:4173/');
 }
@@ -604,6 +618,31 @@ test('keeps manual tag requests and renders provider descriptions as text', asyn
   await browser.getByRole('combobox', { name: 'Show', exact: true }).selectOption('pending');
   await expect(browser.locator('.discussion-row')).toHaveCount(1);
   await expect(browser.locator('.discussion-row')).toContainText('CUSTOM_ECHO');
+});
+
+test('pins and mutes a discussion without changing subscription or sidebar access', async ({
+  page,
+}) => {
+  await setup(page, true, state.discussions, state.messages, [
+    { tag: 'TEST', name: 'Test discussion' },
+    { tag: 'ZED', name: 'Zed discussion' },
+  ]);
+  const nav = page.getByRole('navigation', { name: 'Mail folders and discussions' });
+  const testArea = nav.getByRole('button', { name: /Test discussion/ });
+  const zed = nav.getByRole('button', { name: 'Zed discussion' });
+  await click(nav.getByRole('button', { name: '＋ Manage discussions' }));
+  const browser = page.getByRole('dialog', { name: 'Manage discussions' });
+  await click(browser.getByRole('button', { name: 'Pin ZED', exact: true }));
+  const first = browser.locator('.discussion-row').first();
+  await expect(first).toContainText('Zed discussion');
+  await click(first.getByRole('button', { name: 'Mute ZED', exact: true }));
+  await expect(first.getByRole('button', { name: 'Unmute ZED', exact: true })).toBeEnabled();
+  await expect(first.getByRole('button', { name: 'Join ZED', exact: true })).toBeEnabled();
+  await click(browser.getByRole('button', { name: 'Close', exact: true }));
+  await expect(zed).toHaveAttribute('title', 'ZED · Pinned · Muted');
+  expect((await zed.boundingBox())!.y).toBeLessThan((await testArea.boundingBox())!.y);
+  await click(zed);
+  await expect(page.getByRole('heading', { name: 'Zed discussion' })).toBeVisible();
 });
 
 test('browses a large cached directory offline and paginates without losing search', async ({
@@ -1894,11 +1933,29 @@ test('validates a matching point and boss and retains typed values after a keyri
   });
 });
 
+test('tests provider settings before setup and does not install an account', async ({ page }) => {
+  await setup(page, false);
+  await click(page.getByRole('button', { name: 'Advanced setup', exact: true }));
+  const manual = await fillManualAccount(page);
+  const testButton = manual.getByRole('button', { name: 'Test connection', exact: true });
+  const port = manual.getByLabel('BinkP port', { exact: true });
+  await port.fill('99');
+  await click(testButton);
+  await expect(manual.getByRole('status')).toContainText('Check the port');
+  await port.fill('24554');
+  await click(testButton);
+  await expect(manual.getByRole('status')).toContainText('No mail was exchanged');
+  expect(await page.evaluate(() => window.packetlarkTest.manualProfile())).toBeNull();
+  await expect(manual.getByLabel('Session password', { exact: true })).toHaveValue(
+    'SESSION-SECRET',
+  );
+});
+
 const secondAccountId = '02451957-4c3e-4a59-abb4-70920a25b543';
 
-async function setupMulti(page: Page) {
+async function setupMulti(page: Page, extra = false) {
   await page.addInitScript(
-    ({ initial, otherId }) => {
+    ({ initial, otherId, extra }) => {
       const a = { ...initial.account!, provider: 'First provider' };
       const b = { ...a, provider: 'Second provider', address: '1:123/456.101@fidonet' };
       const accounts = [
@@ -1908,6 +1965,16 @@ async function setupMulti(page: Page) {
       const first = { ...initial.messages[0], subject: 'First inbox' };
       const second = { ...first, subject: 'Second inbox', from: 'Another sysop' };
       const mail: Record<string, Message[]> = { primary: [first], [otherId]: [second] };
+      if (extra)
+        mail[otherId].push(
+          { ...second, id: 'sent-note', subject: 'Second sent note', folder: 'sent' },
+          {
+            ...second,
+            id: '8e0ac4d2-ff26-4110-9228-c2cfb447e32b',
+            subject: 'Second draft note',
+            folder: 'drafts',
+          },
+        );
       let active = 'primary';
       let revision = 0;
       let notify: ((id: string, accountId?: string) => void) | undefined;
@@ -1959,6 +2026,26 @@ async function setupMulti(page: Page) {
               date: mail[entry.id][0].date,
             })),
           }),
+          searchAllMail: async ({ query }: MailSearch) => {
+            const items = accounts.flatMap((entry) =>
+              mail[entry.id]
+                .filter((m) => m.subject.toLowerCase().includes(query.toLowerCase()))
+                .map((m) => ({
+                  accountId: entry.id,
+                  accountAddress: entry.account.address,
+                  provider: entry.account.provider,
+                  messageId: m.id,
+                  from: m.from,
+                  to: m.to,
+                  subject: m.subject,
+                  folder: m.folder,
+                  area: '',
+                  preview: m.body,
+                  date: m.date,
+                })),
+            );
+            return { items, total: items.length };
+          },
           onNotification: (cb: typeof notify) => {
             notify = cb;
           },
@@ -1966,10 +2053,37 @@ async function setupMulti(page: Page) {
         },
       });
     },
-    { initial: state, otherId: secondAccountId },
+    { initial: state, otherId: secondAccountId, extra },
   );
   await page.goto('http://127.0.0.1:4173/');
 }
+
+test('searches all mail and opens the owning account, folder and draft editor', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 600 });
+  await setupMulti(page, true);
+  const all = page.getByRole('button', { name: 'All mail', exact: true });
+  await click(all);
+  const dialog = page.getByRole('dialog', { name: 'Search all mail' });
+  await dialog.getByRole('searchbox').fill('second');
+  await expect(dialog.getByRole('status')).toHaveText('3 matching messages.');
+  await click(dialog.getByRole('button', { name: /Second sent note/ }));
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Switch account' })).toHaveValue(secondAccountId);
+  await expect(page.getByRole('heading', { name: 'Sent', exact: true })).toHaveText('Sent');
+  await expect(
+    page
+      .getByRole('region', { name: 'Message reader' })
+      .getByRole('heading', { name: 'Second sent note' }),
+  ).toHaveText('Second sent note');
+  await click(all);
+  await dialog.getByRole('searchbox').fill('draft note');
+  await click(dialog.getByRole('button', { name: /Second draft note/ }));
+  await expect(page.getByRole('dialog', { name: 'New message' }).getByLabel('Subject')).toHaveValue(
+    'Second draft note',
+  );
+});
 
 test('switches accounts and opens a same-ID unified unread result in its own mailbox', async ({
   page,

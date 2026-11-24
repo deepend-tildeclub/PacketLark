@@ -1,4 +1,13 @@
-import type { Api, Compose, Discussion, Message, RuntimeUpdate, State } from '../core/model.js';
+import type {
+  Api,
+  Compose,
+  Discussion,
+  DiscussionPreference,
+  MailHit,
+  Message,
+  RuntimeUpdate,
+  State,
+} from '../core/model.js';
 import { connectionSettingsSchema, profileSchema } from '../core/model.js';
 import './style.css';
 import {
@@ -150,11 +159,15 @@ search.addEventListener('input', () => {
   query = search.value;
   renderMailbox();
 });
+const allMailButton = button('All mail', () => allMailDialog(), 'small all-mail-button');
+allMailButton.title = 'Search all folders and accounts';
+const searchTools = e('div', 'search-tools');
+searchTools.append(search, allMailButton);
 toolbar.append(
   composeButton,
   syncButton,
   accountPicker,
-  search,
+  searchTools,
   button('Account', () => accountDialog()),
   button('Preferences', () => preferencesDialog()),
 );
@@ -319,13 +332,14 @@ async function drainNotification() {
 }
 function renderRuntime() {
   composeButton.disabled = !state.account;
+  allMailButton.disabled = !state.account;
   syncButton.disabled = !state.account || (state.anySyncing ?? state.syncing);
   setText(syncButton, state.syncing ? '↻ Connecting…' : '↻ Send & receive');
-  syncButton.title = state.anySyncing && !state.syncing ? 'Another account is checking mail.' : '';
+  syncButton.title = state.anySyncing && !state.syncing ? 'Another connection is in progress.' : '';
   footerStatus.className = state.syncing ? 'working' : '';
   setText(
     footerStatus,
-    `● ${state.anySyncing && !state.syncing ? 'Another account is checking mail.' : state.status}`,
+    `● ${state.anySyncing && !state.syncing ? 'Another connection is in progress.' : state.status}`,
   );
   setText(
     footerTime,
@@ -376,6 +390,7 @@ function renderSidebar() {
     state.accounts?.length,
     !!state.account,
     state.areas,
+    state.discussionPreferences,
     ['inbox', 'sent', 'drafts', 'outbox', 'starred', 'trash'].map(
       (id) => counts.folders.get(id) || 0,
     ),
@@ -422,7 +437,9 @@ function renderSidebar() {
     sidebar.append(navButton('All unread', () => allUnreadDialog(), 'nav-item'));
   const discussionHeader = e('div', 'section-label section-spaced', 'DISCUSSIONS');
   sidebar.append(discussionHeader);
-  for (const area of state.areas) {
+  const preferences = discussionPreferenceMap();
+  const areas = [...state.areas].sort((a, b) => pinnedFirst(preferences, a.tag, b.tag));
+  for (const area of areas) {
     const count = counts.unreadAreas.get(area.tag) || 0;
     const b = navButton(
       area.name,
@@ -433,7 +450,15 @@ function renderSidebar() {
       },
       folder === `area:${area.tag}` ? 'nav-item active' : 'nav-item',
     );
-    b.title = area.tag;
+    const preference = preferences.get(area.tag);
+    b.title = [area.tag, preference?.pinned && 'Pinned', preference?.muted && 'Muted']
+      .filter(Boolean)
+      .join(' · ');
+    if (preference?.pinned || preference?.muted) {
+      const indicator = e('span', 'discussion-indicator', preference.muted ? '🔕' : '★');
+      indicator.setAttribute('aria-hidden', 'true');
+      b.append(indicator);
+    }
     if (count) b.append(e('span', 'count', String(count)));
     sidebar.append(b);
   }
@@ -443,6 +468,12 @@ function renderSidebar() {
     e('div', 'sidebar-note', 'Independent conversations.\nDelivered through FidoNet.'),
   );
   sidebar.scrollTop = scroll;
+}
+function discussionPreferenceMap() {
+  return new Map((state.discussionPreferences || []).map((p) => [p.tag, p]));
+}
+function pinnedFirst(preferences: ReadonlyMap<string, DiscussionPreference>, a: string, b: string) {
+  return Number(!!preferences.get(b)?.pinned) - Number(!!preferences.get(a)?.pinned);
 }
 function renderMailbox() {
   if (!state) return;
@@ -1156,6 +1187,46 @@ function field(parent: HTMLElement, label: string, value = '', type = 'text') {
   parent.append(wrap);
   return input;
 }
+function addConnectionTest<T>(
+  parent: HTMLElement,
+  fields: HTMLFieldSetElement,
+  input: () => T | undefined,
+  test: (value: T) => Promise<void>,
+  isOpen: () => boolean,
+) {
+  const result = e('p', 'muted');
+  result.setAttribute('role', 'status');
+  result.hidden = true;
+  const control = button('Test connection', () => {
+    if (fields.disabled) return;
+    const value = input();
+    if (!value) return;
+    fields.disabled = true;
+    result.hidden = false;
+    result.classList.remove('failed');
+    result.textContent = 'Testing your provider connection…';
+    void test(value)
+      .then(() => {
+        if (isOpen())
+          result.textContent =
+            'Connection successful. The provider accepted your login. No mail was exchanged.';
+      })
+      .catch((error: unknown) => {
+        if (!isOpen()) return;
+        result.classList.add('failed');
+        result.textContent =
+          error instanceof Error ? error.message : 'Could not test this connection.';
+      })
+      .finally(() => {
+        fields.disabled = false;
+        if (isOpen()) control.focus({ preventScroll: true });
+      });
+  });
+  fields.addEventListener('input', () => {
+    result.hidden = true;
+  });
+  parent.append(control, result);
+}
 function reply(m: Message, privately: boolean) {
   openCompose({
     to: m.from,
@@ -1801,12 +1872,11 @@ function manualSetupDialog() {
   error.hidden = true;
   const save = e('button', 'primary', 'Set up account');
   save.type = 'submit';
-  fields.append(save);
   form.append(fields, error);
   let saving = false;
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (saving || !form.reportValidity()) return;
+  const readProfile = () => {
+    error.hidden = true;
+    if (!form.reportValidity()) return;
     const result = profileSchema.safeParse({
       format: 'packetlark-account',
       version: 1,
@@ -1849,12 +1919,27 @@ function manualSetupDialog() {
       error.hidden = false;
       return;
     }
+    return result.data;
+  };
+  addConnectionTest(
+    fields,
+    fields,
+    readProfile,
+    (value) => api.testSetupConnection(value),
+    () => box.open,
+  );
+  fields.append(save);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (saving || fields.disabled) return;
+    const value = readProfile();
+    if (!value) return;
     saving = true;
     fields.disabled = true;
     error.hidden = true;
     void (async () => {
       try {
-        await api.setupAccount(result.data);
+        await api.setupAccount(value);
         session.value = packet.value = areaFix.value = '';
         close();
         await refresh();
@@ -1964,15 +2049,14 @@ function connectionDialog() {
   }
   const save = e('button', 'primary', 'Save connection settings');
   save.type = 'submit';
-  fields.append(save);
   const error = e('p', 'notice warning');
   error.setAttribute('role', 'alert');
   error.hidden = true;
   form.append(fields, error);
   body.append(form);
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (fields.disabled || !form.reportValidity()) return;
+  const readSettings = () => {
+    error.hidden = true;
+    if (!form.reportValidity()) return;
     const result = connectionSettingsSchema.safeParse({
       host: host.value.trim(),
       port: Number(port.value),
@@ -1989,10 +2073,25 @@ function connectionDialog() {
       error.hidden = false;
       return;
     }
+    return result.data;
+  };
+  addConnectionTest(
+    fields,
+    fields,
+    readSettings,
+    (value) => api.testSavedConnection(value, id),
+    () => box.open,
+  );
+  fields.append(save);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (fields.disabled) return;
+    const value = readSettings();
+    if (!value) return;
     fields.disabled = true;
     error.hidden = true;
     void api
-      .updateConnection(result.data, id)
+      .updateConnection(value, id)
       .then(() => {
         close();
         notify('Connection settings saved.');
@@ -2074,6 +2173,124 @@ function allUnreadDialog() {
     }
   }
   void load(true);
+}
+
+function allMailDialog() {
+  const { box, body, close } = dialog('Search all mail');
+  const input = field(body, 'Search all mail', search.value.slice(0, 160), 'search');
+  input.maxLength = 160;
+  input.placeholder = 'Name, subject or message text';
+  const sort = e('label', 'field', 'Sort search results');
+  const order = e('select');
+  order.append(new Option('Newest first', 'newest'), new Option('Oldest first', 'oldest'));
+  order.value = sortOrder;
+  sort.append(order);
+  const status = e('p', 'muted');
+  status.setAttribute('role', 'status');
+  const results = e('div', 'unread-results');
+  let offset = 0,
+    version = 0,
+    opening = false;
+  const seen = new Set<string>();
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  const more = button('Show more results', () => void load(version));
+  more.hidden = true;
+  body.append(sort, status, results, more);
+  const reset = () => {
+    clearTimeout(debounce);
+    const token = ++version;
+    offset = 0;
+    seen.clear();
+    results.replaceChildren();
+    more.hidden = true;
+    status.textContent = input.value.trim()
+      ? 'Searching…'
+      : 'Search your local mail across all folders and accounts.';
+    if (input.value.trim()) debounce = setTimeout(() => void load(token), 180);
+  };
+  input.addEventListener('input', reset);
+  order.addEventListener('change', reset);
+  box.addEventListener('close', () => {
+    clearTimeout(debounce);
+    version++;
+  });
+  async function load(token: number) {
+    if (!box.open || token !== version) return;
+    more.disabled = true;
+    try {
+      const { items, total } = await api.searchAllMail({
+        query: input.value.trim(),
+        order: order.value === 'oldest' ? 'oldest' : 'newest',
+        offset,
+      });
+      if (!box.open || token !== version) return;
+      status.textContent = total
+        ? `${total} matching message${total === 1 ? '' : 's'}.`
+        : 'No matching messages.';
+      for (const item of items) {
+        const key = `${item.accountId}:${item.messageId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const row = button(
+          item.subject || '(No subject)',
+          () => void openHit(item),
+          'unread-item search-hit',
+        );
+        const location =
+          item.folder === 'inbox' && item.area
+            ? item.area
+            : item.folder[0].toUpperCase() + item.folder.slice(1);
+        const contact = item.folder === 'inbox' ? item.from : `To: ${item.to || '(No recipient)'}`;
+        row.append(
+          e(
+            'small',
+            '',
+            `${item.provider} · ${item.accountAddress} · ${location} · ${date(item.date)}`,
+          ),
+          e('small', '', `${contact}${item.preview ? ` · ${item.preview}` : ''}`),
+        );
+        results.append(row);
+      }
+      offset += items.length;
+      more.hidden = !items.length || offset >= total;
+    } catch (error) {
+      if (box.open && token === version)
+        status.textContent = error instanceof Error ? error.message : 'Could not search your mail.';
+    } finally {
+      if (token === version) more.disabled = false;
+    }
+  }
+  async function openHit(item: MailHit) {
+    if (opening) return;
+    opening = true;
+    try {
+      if (item.accountId !== state.accountId) await switchAccount(item.accountId);
+      if (!box.open) return;
+      const message =
+        state.accountId === item.accountId
+          ? state.messages.find((m) => m.id === item.messageId && !m.internal)
+          : undefined;
+      if (!message || (message.area && !state.areas.some((a) => a.tag === message.area))) {
+        status.textContent = 'That message is no longer available.';
+        return;
+      }
+      folder = message.folder === 'inbox' && message.area ? `area:${message.area}` : message.folder;
+      selection = message.id;
+      unreadOnly = false;
+      query = search.value = '';
+      render();
+      close();
+      if (message.folder === 'drafts') openCompose(message);
+      else if (message.folder === 'inbox' && !message.read)
+        void action(() => api.mark(message.id, { read: true }, item.accountId));
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : 'Could not open this message.';
+    } finally {
+      opening = false;
+    }
+  }
+  reset();
+  input.focus();
 }
 
 function notificationPreferences(body: HTMLElement) {
@@ -2183,6 +2400,13 @@ function areasDialog() {
       'Find conversations offered by your provider. Joining sends a request; the provider confirms it after processing your mail.',
     ),
   );
+  body.append(
+    e(
+      'p',
+      'muted',
+      'Pin favorites to the top. Mute pauses desktop alerts for a discussion; messages and unread counts still arrive.',
+    ),
+  );
   const controls = e('div', 'discussion-controls');
   const listRequest = button(
     'Get available discussions',
@@ -2224,6 +2448,17 @@ function areasDialog() {
     button('Request to leave', () => change(tag.value.trim().toUpperCase(), false)),
   );
   body.append(controls, progress, filters, count, results, more, manual);
+  const savingPreferences = new Set<string>();
+  function setPreference(tag: string, key: keyof DiscussionPreference) {
+    if (savingPreferences.has(tag)) return;
+    const current = discussionPreferenceMap().get(tag);
+    const value = { pinned: current?.pinned ?? false, muted: current?.muted ?? false };
+    value[key] = !value[key];
+    savingPreferences.add(tag);
+    void action(() => api.setDiscussionPreference(tag, value, accountId)).finally(() => {
+      savingPreferences.delete(tag);
+    });
+  }
   function run(fn: () => Promise<unknown>) {
     if (busy || state.syncing) return;
     busy = true;
@@ -2285,6 +2520,7 @@ function areasDialog() {
       ]),
     );
     for (const entry of directory.entries) entries.set(entry.tag, entry);
+    const preferences = discussionPreferenceMap();
     const term = find.value.trim().toLocaleLowerCase();
     const matching = [...entries.values()]
       .filter(
@@ -2293,15 +2529,21 @@ function areasDialog() {
           (filter.value === 'all' ||
             (filter.value === 'pending' ? !!a.pending : a.subscription === filter.value)),
       )
-      .sort((a, b) => a.name.localeCompare(b.name) || a.tag.localeCompare(b.tag));
+      .sort(
+        (a, b) =>
+          pinnedFirst(preferences, a.tag, b.tag) ||
+          a.name.localeCompare(b.name) ||
+          a.tag.localeCompare(b.tag),
+      );
     count.textContent = `${matching.length} discussion${matching.length === 1 ? '' : 's'}${matching.length > limit ? ` · showing ${limit}` : ''}`;
     const focused = results.contains(document.activeElement)
-      ? (document.activeElement as HTMLElement).dataset.area
+      ? (document.activeElement as HTMLElement).dataset.discussionControl
       : null;
     const scroll = results.scrollTop;
     results.replaceChildren();
     for (const area of matching.slice(0, limit)) {
       const row = e('li', 'discussion-row');
+      const prefs = preferences.get(area.tag);
       const info = e('div', 'discussion-info');
       info.append(e('strong', '', area.name), e('span', 'address muted', area.tag));
       const status = area.pending
@@ -2317,15 +2559,35 @@ function areasDialog() {
         status,
       );
       info.append(badge);
+      if (prefs?.pinned || prefs?.muted)
+        info.append(
+          e(
+            'span',
+            'discussion-badge',
+            [prefs.pinned && 'Pinned', prefs.muted && 'Muted'].filter(Boolean).join(' · '),
+          ),
+        );
       if (area.error) info.append(e('span', 'failed', area.error));
       const join = area.pending ? area.pending.action === 'join' : area.subscription !== 'joined';
       const label = `${area.pending ? 'Retry ' : ''}${join ? 'join' : 'leave'}`;
       const control = button(label[0].toUpperCase() + label.slice(1), () => change(area.tag, join));
       control.setAttribute('aria-label', `${label[0].toUpperCase() + label.slice(1)} ${area.tag}`);
       control.dataset.area = area.tag;
+      control.dataset.discussionControl = `subscription:${area.tag}`;
       control.disabled =
         busy || state.syncing || !!(area.pending && outbox.has(area.pending.messageId));
-      row.append(info, control);
+      const actions = e('div', 'discussion-actions');
+      for (const [key, label] of [
+        ['pinned', prefs?.pinned ? 'Unpin' : 'Pin'],
+        ['muted', prefs?.muted ? 'Unmute' : 'Mute'],
+      ] as const) {
+        const toggle = button(label, () => setPreference(area.tag, key), 'small');
+        toggle.setAttribute('aria-label', `${label} ${area.tag}`);
+        toggle.dataset.discussionControl = `${key}:${area.tag}`;
+        actions.append(toggle);
+      }
+      actions.append(control);
+      row.append(info, actions);
       results.append(row);
     }
     if (!matching.length)
@@ -2343,7 +2605,7 @@ function areasDialog() {
     results.scrollTop = scroll;
     if (focused)
       [...results.querySelectorAll<HTMLButtonElement>('button')]
-        .find((b) => b.dataset.area === focused)
+        .find((b) => b.dataset.discussionControl === focused)
         ?.focus({ preventScroll: true });
     more.hidden = matching.length <= limit;
     for (const control of manual.querySelectorAll('button'))

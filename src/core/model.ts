@@ -245,6 +245,28 @@ export type UnreadItem = {
   area: string;
   date: string;
 };
+export const discussionPreferenceSchema = z
+  .object({
+    pinned: z.boolean(),
+    muted: z.boolean(),
+  })
+  .strict();
+export type DiscussionPreference = z.infer<typeof discussionPreferenceSchema>;
+export const mailSearchSchema = z
+  .object({
+    query: z.string().trim().min(1).max(160),
+    order: z.enum(['newest', 'oldest']),
+    offset: z.number().int().nonnegative().safe(),
+  })
+  .strict();
+export type MailSearch = z.infer<typeof mailSearchSchema>;
+export type MailHit = UnreadItem & {
+  accountAddress: string;
+  folder: Message['folder'];
+  to: string;
+  preview: string;
+};
+export type MailSearchResult = { items: MailHit[]; total: number };
 export type State = {
   accountId?: string;
   accounts?: AccountSummary[];
@@ -256,6 +278,7 @@ export type State = {
   messages: Message[];
   areas: { tag: string; name: string }[];
   discussions: DiscussionDirectory;
+  discussionPreferences?: { tag: string; pinned: boolean; muted: boolean }[];
   contacts: { name: string; address: string }[];
   syncing: boolean;
   status: string;
@@ -279,6 +302,8 @@ export type Api = {
   state(): Promise<State>;
   importAccount(): Promise<boolean>;
   setupAccount(value: Profile): Promise<void>;
+  testSetupConnection(value: Profile): Promise<void>;
+  testSavedConnection(value: ConnectionSettings, accountId?: string): Promise<void>;
   sync(accountId?: string): Promise<void>;
   syncAll(): Promise<void>;
   selectAccount(accountId: string): Promise<void>;
@@ -290,6 +315,12 @@ export type Api = {
     order: 'newest' | 'oldest',
     offset: number,
   ): Promise<{ items: UnreadItem[]; total: number }>;
+  searchAllMail(value: MailSearch): Promise<MailSearchResult>;
+  setDiscussionPreference(
+    tag: string,
+    value: DiscussionPreference,
+    accountId?: string,
+  ): Promise<void>;
   saveDraft(value: Compose, accountId?: string): Promise<string>;
   queue(value: Compose, accountId?: string): Promise<string>;
   mark(id: string, patch: { read?: boolean; starred?: boolean }, accountId?: string): Promise<void>;

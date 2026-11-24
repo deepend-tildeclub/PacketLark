@@ -9,8 +9,13 @@ import {
   type State,
   type AccountSummary,
   type UnreadItem,
+  type MailSearch,
+  type MailSearchResult,
+  type Message,
+  type PublicAccount,
 } from './model.js';
 import { Store, atomicWrite } from './store.js';
+import { plainMessageText } from './art.js';
 
 export const primaryAccount = 'primary';
 export const accountIdSchema = z.union([z.literal(primaryAccount), z.string().uuid()]);
@@ -250,6 +255,69 @@ export class Accounts {
         a.m.messageId.localeCompare(b.m.messageId),
     );
     return { items: sortable.slice(offset, offset + 200).map((r) => r.m), total: messages.length };
+  }
+  searchMail({ query, order, offset }: MailSearch): MailSearchResult {
+    const term = query.trim().toLowerCase();
+    if (!term) return { items: [], total: 0 };
+    const matches: {
+      accountId: string;
+      owner: PublicAccount;
+      message: Message;
+      area: string;
+      stamp: number;
+      start: number;
+    }[] = [];
+    for (const account of this.contexts.values()) {
+      const s = snapshot(account);
+      if (!s.account) continue;
+      const areaNames = new Map(s.areas.map((area) => [area.tag, area.name]));
+      for (const m of s.messages) {
+        if (m.internal || (m.area && !areaNames.has(m.area))) continue;
+        const area = areaNames.get(m.area) || '';
+        const header = `${m.from} ${m.fromAddress} ${m.to} ${m.toAddress} ${m.subject} ${area} ${m.area}`;
+        const index = plainMessageText(m.body).toLowerCase().indexOf(term);
+        if (index < 0 && !header.toLowerCase().includes(term)) continue;
+        matches.push({
+          accountId: account.id,
+          owner: s.account,
+          message: m,
+          area,
+          stamp: Date.parse(m.date),
+          start: Math.max(0, index - 40),
+        });
+      }
+    }
+    matches.sort(
+      (a, b) =>
+        Number(!Number.isFinite(a.stamp)) - Number(!Number.isFinite(b.stamp)) ||
+        (order === 'newest' ? b.stamp - a.stamp : a.stamp - b.stamp) ||
+        a.accountId.localeCompare(b.accountId) ||
+        a.message.id.localeCompare(b.message.id),
+    );
+    return {
+      items: matches
+        .slice(offset, offset + 100)
+        .map(({ accountId, owner, message, area, start }) => {
+          const preview = plainMessageText(message.body)
+            .slice(start, start + 160)
+            .replace(/\s+/g, ' ')
+            .trim();
+          return {
+            accountId,
+            accountAddress: owner.address,
+            provider: owner.provider,
+            messageId: message.id,
+            folder: message.folder,
+            from: message.from,
+            to: message.to,
+            subject: message.subject,
+            area,
+            date: message.date,
+            preview: preview && (start ? `…${preview}` : preview),
+          };
+        }),
+      total: matches.length,
+    };
   }
   close() {
     for (const a of this.contexts.values()) a.store.close();

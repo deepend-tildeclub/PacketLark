@@ -1,4 +1,4 @@
-import { exchange } from './binkp.js';
+import { exchange, testConnection } from './binkp.js';
 import { unpackMail } from './packet.js';
 import { type AccountContext, snapshot } from './accounts.js';
 import type { Profile } from './model.js';
@@ -31,6 +31,7 @@ export class AccountSync {
   current?: AccountContext;
   private batch = false;
   private controller?: AbortController;
+  private probe?: AbortController;
   private stopped = false;
   private startupHandled = false;
   constructor(
@@ -42,11 +43,35 @@ export class AccountSync {
     },
   ) {}
   get busy() {
-    return !!this.current || this.batch;
+    return !!this.current || this.batch || !!this.probe;
   }
   stop() {
     this.stopped = true;
     this.controller?.abort();
+    this.probe?.abort();
+  }
+  async test(profile: Profile): Promise<void> {
+    if (this.busy || this.stopped)
+      throw new Error('Wait for the current connection to finish, then try again.');
+    this.probe = new AbortController();
+    this.hooks.emit();
+    try {
+      await testConnection(profile, this.probe.signal);
+    } catch (error) {
+      const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+      if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_SSL_WRONG_VERSION_NUMBER')
+        throw new Error('Could not establish a session. Check the BinkP port and TLS setting.', {
+          cause: error,
+        });
+      if (error instanceof Error && error.message === 'Provider connection timed out.')
+        throw new Error('The server did not respond. Check the hostname, port, TLS and network.', {
+          cause: error,
+        });
+      throw new Error(connectionError(error, profile), { cause: error });
+    } finally {
+      this.probe = undefined;
+      this.hooks.emit();
+    }
   }
   tick(accounts: Iterable<AccountContext>) {
     if (this.busy || this.stopped) return;
@@ -95,7 +120,7 @@ export class AccountSync {
   }
 
   async run(account: AccountContext, inBatch = false) {
-    if (this.current || (this.batch && !inBatch) || this.stopped) return;
+    if (this.current || this.probe || (this.batch && !inBatch) || this.stopped) return;
     const now = this.hooks.now || Date.now;
     if (account.lastAttempt && now() - account.lastAttempt < 5000)
       throw new Error('Please wait a few seconds before connecting again.');

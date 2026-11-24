@@ -76,11 +76,22 @@ textarea:focus-visible {
   flex-shrink: 0;
   object-fit: contain;
 }
-.search {
+.search-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
-  max-width: 340px;
-  min-width: 100px;
-  width: 28%;
+  flex: 1 1 200px;
+  min-width: 140px;
+  max-width: 415px;
+}
+.all-mail-button {
+  flex: none;
+  white-space: nowrap;
+}
+.search {
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 9px 12px;
@@ -148,6 +159,11 @@ textarea:focus-visible {
   color: var(--text);
   flex: none;
   white-space: nowrap;
+}
+.discussion-indicator {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
 }
 .subdued {
   font-size: 12px;
@@ -739,8 +755,15 @@ dialog::backdrop {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
-.discussion-row button {
+.discussion-actions {
   justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.discussion-actions button:last-child {
   min-width: 86px;
 }
 .discussion-badge {
@@ -772,8 +795,9 @@ dialog::backdrop {
     gap: 8px;
     padding: 12px;
   }
-  .discussion-row button {
+  .discussion-actions {
     justify-self: start;
+    justify-content: flex-start;
   }
 }
 @media (max-height: 660px) {
@@ -828,9 +852,6 @@ dialog::backdrop {
     padding-left: 23px;
     padding-right: 23px;
   }
-  .search {
-    width: 20%;
-  }
   .sidebar {
     padding: 22px 8px;
   }
@@ -878,4 +899,7 @@ dialog::backdrop {
   display: block;
   margin-top: 4px;
   color: var(--muted);
+}
+.search-hit {
+  overflow-wrap: anywhere;
 }

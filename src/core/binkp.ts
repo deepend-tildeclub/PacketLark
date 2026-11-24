@@ -62,17 +62,33 @@ function fileArgs(value: string): { name: string; size: number; time: number; of
     throw new Error('BinkP file size is invalid or too large.');
   return { name: m[1], size, time, offset };
 }
-export async function exchange(
+type ExchangeHooks = {
+  receive(file: MailFile): Promise<void>;
+  sent(name: string): Promise<void>;
+  status(text: string): void;
+};
+export function exchange(
   profile: Profile,
   outgoing: MailFile[],
-  hooks: {
-    receive(file: MailFile): Promise<void>;
-    sent(name: string): Promise<void>;
-    status(text: string): void;
-  },
+  hooks: ExchangeHooks,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (signal?.aborted) throw new Error('Send & receive cancelled.');
+  return session(profile, { outgoing, hooks }, signal);
+}
+
+export function testConnection(profile: Profile, signal?: AbortSignal): Promise<void> {
+  return session(profile, null, signal);
+}
+
+async function session(
+  profile: Profile,
+  transfer: { outgoing: MailFile[]; hooks: ExchangeHooks } | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  const cancelled = transfer ? 'Send & receive cancelled.' : 'Connection test cancelled.';
+  if (signal?.aborted) throw new Error(cancelled);
+  const outgoing = transfer?.outgoing || [];
+  const hooks = transfer?.hooks;
   const options = { host: profile.uplink.host, port: profile.uplink.port };
   const socket = profile.uplink.tls
     ? tls.connect({
@@ -81,12 +97,19 @@ export async function exchange(
         rejectUnauthorized: true,
       })
     : net.connect(options);
-  socket.setTimeout(60000, () => socket.destroy(new Error('Provider connection timed out.')));
-  const absolute = setTimeout(
-    () => socket.destroy(new Error('Session exceeded the five-minute limit.')),
-    300000,
+  socket.setTimeout(transfer ? 60000 : 15000, () =>
+    socket.destroy(new Error('Provider connection timed out.')),
   );
-  const abort = () => socket.destroy(new Error('Send & receive cancelled.'));
+  const absolute = setTimeout(
+    () =>
+      socket.destroy(
+        new Error(
+          transfer ? 'Session exceeded the five-minute limit.' : 'Provider connection timed out.',
+        ),
+      ),
+    transfer ? 300000 : 15000,
+  );
+  const abort = () => socket.destroy(new Error(cancelled));
   signal?.addEventListener('abort', abort, { once: true });
   let authenticated = false,
     identified = false,
@@ -120,7 +143,7 @@ export async function exchange(
           }
           return;
         }
-        hooks.status(`Sending message ${index + 1} of ${outgoing.length}…`);
+        hooks?.status(`Sending message ${index + 1} of ${outgoing.length}…`);
         await send(CMD.FILE, `${f.name} ${f.bytes.length} ${f.time} ${offset}`);
         for (let pos = offset; pos < f.bytes.length; pos += 16384) {
           if (ticket !== generation) return;
@@ -141,7 +164,7 @@ export async function exchange(
         resolve();
       });
     });
-    hooks.status('Connecting to your provider…');
+    hooks?.status('Connecting to your provider…');
     await send(CMD.NUL, 'SYS PacketLark');
     await send(CMD.NUL, `ZYZ ${profile.name}`);
     await send(CMD.NUL, 'LOC Internet');
@@ -158,9 +181,9 @@ export async function exchange(
         incoming.chunks.push(f.data);
         if (incoming.received === incoming.meta.size) {
           const { meta, chunks } = incoming;
-          hooks.status('Saving incoming messages…');
+          hooks?.status('Saving incoming messages…');
           // The application must durably commit before the remote may discard its copy.
-          await hooks.receive({ name: meta.name, time: meta.time, bytes: Buffer.concat(chunks) });
+          await hooks?.receive({ name: meta.name, time: meta.time, bytes: Buffer.concat(chunks) });
           await send(CMD.GOT, `${meta.name} ${meta.size} ${meta.time}`);
           incoming = null;
         }
@@ -171,7 +194,9 @@ export async function exchange(
         throw new Error(
           f.command === CMD.BSY
             ? 'Your provider is busy. Try again shortly.'
-            : `Provider rejected the session: ${text.slice(0, 200)}`,
+            : !transfer
+              ? 'The provider rejected the connection. Check your point address and session password, or ask your sysop whether your point is enabled.'
+              : `Provider rejected the session: ${text.slice(0, 200)}`,
         );
       if (f.command === CMD.NUL) {
         const m = /\bCRAM-MD5-([a-f0-9]{2,512})\b/i.exec(text);
@@ -185,7 +210,11 @@ export async function exchange(
           }
         });
         if (!identified)
-          throw new Error('Provider did not advertise the expected FidoNet address.');
+          throw new Error(
+            transfer
+              ? 'Provider did not advertise the expected FidoNet address.'
+              : 'The server did not identify as your boss node. Check the boss-node address, hostname and port.',
+          );
         if (!passwordSent) {
           if (challenge)
             await send(
@@ -202,8 +231,10 @@ export async function exchange(
       } else if (f.command === CMD.OK) {
         if (!identified || !passwordSent || authenticated)
           throw new Error('Unexpected authentication acknowledgement.');
+        // A probe ends before the client sends EOB, offers a file, or acknowledges mail.
+        if (!transfer) return;
         authenticated = true;
-        hooks.status('Connected. Exchanging messages…');
+        hooks?.status('Connected. Exchanging messages…');
         queueSend();
       } else {
         if (!authenticated) throw new Error('Unexpected command before authentication.');
@@ -232,7 +263,7 @@ export async function exchange(
             ack.time !== out.time
           )
             throw new Error('Provider acknowledged an unknown outgoing file.');
-          await hooks.sent(out.name);
+          await hooks?.sent(out.name);
           index++;
           queueSend();
         } else if (f.command === CMD.GET) {
@@ -274,9 +305,11 @@ export async function exchange(
       complete = true;
     if (!complete)
       throw new Error(
-        'Connection ended before the mail exchange completed. Unconfirmed messages remain queued.',
+        transfer
+          ? 'Connection ended before the mail exchange completed. Unconfirmed messages remain queued.'
+          : 'The server closed the connection before accepting your login. Check the BinkP port and TLS setting.',
       );
-    hooks.status('All messages exchanged.');
+    hooks?.status('All messages exchanged.');
   } finally {
     clearTimeout(absolute);
     signal?.removeEventListener('abort', abort);

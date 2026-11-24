@@ -266,7 +266,8 @@ try {
       const after = await api.state();
       await api.selectAccount(first.accountId);
       const original = await api.state();
-      return { added, empty, after, original, rejected, firstId: first.accountId };
+      const allMail = await api.searchAllMail({ query: 'Owner', order: 'newest', offset: 0 });
+      return { added, empty, after, original, rejected, allMail, firstId: first.accountId };
     });
     assert.equal(isolated.added.accounts.length, 2);
     assert.equal(isolated.added.accountId, isolated.firstId);
@@ -286,6 +287,16 @@ try {
       true,
     );
     assert.equal(isolated.after.reading.fontSize, 18);
+    assert.equal(isolated.allMail.total, 2);
+    assert.deepEqual(
+      isolated.allMail.items
+        .map((m) => [m.subject, m.accountId, m.folder])
+        .sort(([a], [b]) => a.localeCompare(b)),
+      [
+        ['Owner A', isolated.firstId, 'drafts'],
+        ['Owner B', isolated.after.accountId, 'drafts'],
+      ],
+    );
     assert.equal(JSON.stringify(isolated).includes('OTHERSECRET'), false);
   }
 

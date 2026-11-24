@@ -24,6 +24,9 @@ import {
   notificationSettingsSchema,
   readingSettingsSchema,
   desktopSettingsSchema,
+  areaSchema,
+  discussionPreferenceSchema,
+  mailSearchSchema,
   type DesktopSettings,
   type State,
 } from '../core/model.js';
@@ -388,18 +391,31 @@ async function importFile(filename: string) {
   if (fs.statSync(filename).size > 128 * 1024)
     throw new Error('Account file exceeds the 128 KiB limit.');
   const profile = profileSchema.parse(JSON.parse(fs.readFileSync(filename, 'utf8')));
-  const result = await dialog.showMessageBox(win!, {
-    type: 'question',
-    buttons: ['Import account', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    title: 'Import PacketLark account',
-    message: `Set up ${profile.name} with ${profile.provider}?`,
-    detail: `Point: ${profile.address}\nProvider: ${profile.uplink.host}:${profile.uplink.port}\nTransport: ${profile.uplink.tls ? 'certificate-verified TLS' : 'BinkP with CRAM-MD5; message traffic is not encrypted'}\n\nOnly import account files from a provider you trust.`,
-  });
-  if (result.response !== 0) return false;
-  await installAccount(profile);
-  return true;
+  const detail = `Point: ${profile.address}\nProvider: ${profile.uplink.host}:${profile.uplink.port}\nTransport: ${profile.uplink.tls ? 'certificate-verified TLS' : 'BinkP with CRAM-MD5; message traffic is not encrypted'}\n\nOnly import account files from a provider you trust.`;
+  let outcome = '';
+  while (!quitting && win && !win.isDestroyed()) {
+    const result = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['Import account', 'Cancel', 'Test connection'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Import PacketLark account',
+      message: `Set up ${profile.name} with ${profile.provider}?`,
+      detail: outcome ? `${detail}\n\n${outcome}` : detail,
+    });
+    if (quitting || result.response === 1) break;
+    if (result.response === 0) {
+      await installAccount(profile);
+      return true;
+    }
+    try {
+      await sessions.test(profile);
+      outcome = 'Connection successful. The provider accepted your login. No mail was exchanged.';
+    } catch (error) {
+      outcome = safeError(error);
+    }
+  }
+  return false;
 }
 async function installAccount(value: unknown) {
   const profile = profileSchema.parse(value);
@@ -568,6 +584,32 @@ function register() {
     return count;
   });
   handle('setupAccount', installAccount);
+  handle('testSetupConnection', (value) => sessions.test(profileSchema.parse(value)));
+  handle('testSavedConnection', (value, id) => {
+    const p = accounts.scope(id).store.profile();
+    if (!p) throw new Error('Set up an account first.');
+    const settings = connectionSettingsSchema.parse(value);
+    return sessions.test({
+      ...p,
+      uplink: {
+        ...p.uplink,
+        host: settings.host,
+        port: settings.port,
+        tls: settings.tls,
+        sessionPassword: settings.sessionPassword ?? p.uplink.sessionPassword,
+      },
+    });
+  });
+  handle('searchAllMail', (value) => accounts.searchMail(mailSearchSchema.parse(value)));
+  handle('setDiscussionPreference', (tag, value, id) => {
+    accounts
+      .scope(id)
+      .store.setDiscussionPreference(
+        areaSchema.parse(tag),
+        discussionPreferenceSchema.parse(value),
+      );
+    emit();
+  });
   handle('reading', (value) => {
     primaryStore().setReading(readingSettingsSchema.parse(value));
     emit();

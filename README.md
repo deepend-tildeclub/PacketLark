@@ -34,8 +34,10 @@ On Linux Wayland, startup disables Chromium's incompatible Vulkan feature while 
 - First unread navigation, one-action conversation read marking, collapsible replies/quotes/signatures, and saved reading preferences.
 - Plain-text display, UTF-8 and selected legacy outgoing encodings, incoming declared encodings supported by iconv-lite.
 - Conversation links from FTN MSGID/REPLY, unread flags, stars, local search, and contacts.
+- **All mail** searches local messages across accounts and folders, including drafts and Trash.
 - Explicit public replies and private replies, plus AreaFix join/leave requests.
 - Browse available discussions with descriptions, search and subscription filters; join or leave using buttons and track provider confirmations.
+- Pin discussions to the top or mute their desktop alerts without changing subscriptions.
 - Administrative discussions whose descriptions contain `ADM` are hidden from the discussion browser, sidebar, and compose area menu, including cached entries.
 - Handle discussion-management requests and replies internally, including cleaning up recognized copies from older mailboxes.
 - Raw Type-2+ packets and standard flat ZIP mail bundles on receive; raw Type-2+ packets on send.
@@ -85,6 +87,12 @@ The optional **Start PacketLark when I sign in** uses Windows login settings or 
 **Quit PacketLark** saves any pending draft before exiting. If saving fails, the window stays open with the text intact. Quitting stops background mail checks; this is a desktop application, not a system service. Native tray and taskbar badge appearance depends on the desktop shell.
 
 ## Advanced connection setup
+
+Choose **Test connection** during file import, advanced setup, or in an
+existing account's connection settings. It checks that the server identifies
+as your boss node and accepts the point login. It does not save settings,
+send queued messages, or import mail. This check does not verify the
+optional packet and AreaFix passwords.
 
 Importing a sysop-provided `.packetlark` file remains the primary setup path. Without a file, choose **Advanced setup** on the welcome screen, under **Account**, or in **Preferences → Connection setup**. This is for an **existing point account**: it does not create or register a point on the BBS, and each account still requires a point address with its matching boss node.
 

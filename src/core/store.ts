@@ -13,6 +13,9 @@ import {
   notificationSettingsSchema,
   readingSettingsSchema,
   desktopSettingsSchema,
+  areaSchema,
+  discussionPreferenceSchema,
+  type DiscussionPreference,
   type ReadingSettings,
   type DesktopSettings,
   type NotificationSettings,
@@ -237,7 +240,26 @@ export class Store {
       reading: this.readingSettings(),
       desktop: this.desktopSettings(),
       checkOnStartup: this.checkOnStartup(),
+      discussionPreferences: this.discussionPreferences(),
     });
+  }
+  private discussionPreferences(): NonNullable<State['discussionPreferences']> {
+    return JSON.parse(this.meta('discussionPreferences') || '[]') as NonNullable<
+      State['discussionPreferences']
+    >;
+  }
+  setDiscussionPreference(tag: string, value: DiscussionPreference): void {
+    areaSchema.parse(tag);
+    const { pinned, muted } = discussionPreferenceSchema.parse(value);
+    const { areas, discussions } = this.state();
+    if (![...areas, ...discussions.entries].some((area) => area.tag === tag))
+      throw new Error('That discussion is no longer available.');
+    const entries = this.discussionPreferences();
+    const previous = entries.find((entry) => entry.tag === tag);
+    if ((previous?.pinned ?? false) === pinned && (previous?.muted ?? false) === muted) return;
+    const updated = entries.filter((entry) => entry.tag !== tag);
+    if (pinned || muted) updated.push({ tag, pinned, muted });
+    this.mutate(() => this.setMeta('discussionPreferences', JSON.stringify(updated)));
   }
   notificationSettings(): NotificationSettings {
     return notificationSettingsSchema.parse(JSON.parse(this.meta('notifications') || '{}'));

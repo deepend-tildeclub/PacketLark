@@ -20,13 +20,14 @@ export function newMailNotice(ids: ReadonlySet<string>, state: State): MailNotic
   const settings = state.notifications || defaultNotifications;
   if (!settings.enabled) return null;
   const areas = new Set(state.areas.map((area) => area.tag));
+  const muted = new Set(state.discussionPreferences?.filter((p) => p.muted).map((p) => p.tag));
   const messages = state.messages.filter(
     (m) =>
       ids.has(m.id) &&
       m.folder === 'inbox' &&
       !m.read &&
       !m.internal &&
-      (!m.area || (settings.discussions && areas.has(m.area))),
+      (!m.area || (settings.discussions && areas.has(m.area) && !muted.has(m.area))),
   );
   if (!messages.length) return null;
   const newest = messages.reduce((a, b) =>
